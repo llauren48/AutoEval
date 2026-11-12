@@ -134,7 +134,11 @@ for name in ['runtime','jobs']:
  p.mkdir(exist_ok=True,mode=0o700)
 print('ready')
 """
-        self.command(client, ["python3", "-c", script, self.root, str(self.connection.owner_id)])
+        # Host staging must use the host interpreter, not a user PATH wrapper
+        # which may enter a container and create files invisible to host SFTP.
+        self.command(
+            client, ["/usr/bin/python3", "-c", script, self.root, str(self.connection.owner_id)]
+        )
         with client.open_sftp() as sftp:
             sftp.get_channel().settimeout(15)
             try:
@@ -192,11 +196,11 @@ print('ready')
 
     async def status(self, job):
         raw = await asyncio.to_thread(self.invoke, "status", job.submission_key)
-        return JobObservation(job=job, state=raw["state"])
+        return JobObservation(job=job, state=raw["state"], reason=raw.get("reason"))
 
     async def cancel(self, job, operation_key):
         raw = await asyncio.to_thread(self.invoke, "cancel", job.submission_key)
-        return JobObservation(job=job, state=raw["state"])
+        return JobObservation(job=job, state=raw["state"], reason=raw.get("reason"))
 
     async def collect(self, job):
         # Result collection uses SFTP rather than scraping terminal output.

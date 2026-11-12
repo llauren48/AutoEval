@@ -3733,7 +3733,47 @@ td small .badge,
   }
 }
 
+/* AISBench 运行监控页签与 case 明细。 */
+.monitor-panel > h3 { margin: 0; }
+.monitor-tabs { margin: 0; border-bottom: 1px solid var(--border); }
+.run-progress { display: grid; gap: 8px; margin: 6px 0 10px; }
+.run-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13px; }
+.run-progress-head b { font-variant-numeric: tabular-nums; }
+.run-progress-track { height: 10px; border-radius: 999px; background: #eceef6; overflow: hidden; }
+.run-progress-track > i { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width .3s ease; }
+.run-progress.final .run-progress-track > i { background: #1f9d63; }
+.run-progress.last_observed .run-progress-track > i { background: #d98a1f; }
+.run-progress > small { font-size: 12px; line-height: 1.6; color: var(--muted); }
+.unified-summary { margin: 0; font-size: 12px; line-height: 1.7; }
+.monitor-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.monitor-list > li { margin: 0; }
+.monitor-list > li > button { display: grid; grid-template-columns: 72px minmax(0, 1fr) 96px; align-items: center; gap: 12px; width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: white; text-align: left; }
+.monitor-list > li > button:hover { background: #f7f6ff; }
+.monitor-list > li > button.active { border-color: var(--primary); background: #f4f1ff; }
+.monitor-list .badge { justify-self: start; }
+.mono { font-family: Consolas, "SFMono-Regular", monospace; font-size: 12px; }
+.monitor-evidence h4 { margin: 12px 0 8px; font-size: 14px; }
+.monitor-evidence > details { border-top: 1px solid var(--border); padding-top: 10px; }
+.monitor-log { max-height: 520px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.7; }
+.case-toolbar { align-items: center; gap: 16px; flex-wrap: wrap; margin: 0; }
+.case-toolbar > label { display: inline-flex; align-items: center; gap: 8px; margin: 0; min-width: 0; font-size: 13px; white-space: nowrap; }
+.case-toolbar > label:first-child { flex: 1 1 260px; }
+.case-toolbar > label > input { flex: 1 1 auto; height: 37px; margin: 0; }
+.case-toolbar > label > select { height: 37px; margin: 0; }
+.case-toolbar > button { height: 37px; flex: 0 0 auto; padding: 0 18px; }
+.case-cell-note { display: block; margin-top: 4px; color: #b42318; font-size: 11px; }
+@media (max-width: 600px) {
+  .monitor-list > li > button { grid-template-columns: 64px minmax(0, 1fr); }
+  .monitor-list > li > button .mono { grid-column: 2; }
+}
 
+/* Tool-observed sample progress; unknown counts remain indeterminate. */
+.run-progress-track { height: 12px; }
+.run-progress.stale .run-progress-track > i { background: #d98a1f; }
+.run-progress-track.indeterminate > i { width: 35%; opacity: .45; animation: monitor-progress-wait 1.8s ease-in-out infinite alternate; }
+@keyframes monitor-progress-wait { from { transform: translateX(-100%); } to { transform: translateX(285%); } }
+.run-progress.stale .indeterminate > i { animation: none; transform: translateX(90%); }
+@media (prefers-reduced-motion: reduce) { .run-progress-track > i { transition: none; } .run-progress-track.indeterminate > i { animation: none; transform: translateX(90%); } }
 /* Console configuration flow */
 textarea { font: inherit; }
 .console-workspace { --muted: #606982; }
@@ -3793,7 +3833,6 @@ textarea { font: inherit; }
   .planning-table td { padding: 8px 0; }
   .planning-card, .planning-summary { padding: 16px; }
 }
-
 /* Compact execution strategy and throughput controls. */
 .planning-strategy { display: flex; align-items: center; flex-wrap: wrap; gap: 16px 24px; }
 .planning-strategy > label:first-child { display: grid; gap: 6px; flex: 0 0 160px; }
@@ -3856,3 +3895,9 @@ textarea { font: inherit; }
 .task-wait-hint { margin: 0; font-size: 13px; color: var(--muted); }
 .task-progress-panel .run-progress { margin: 0; }
 @media (max-width: 700px) { .task-phase-steps { gap: 6px; } .task-phase-steps li { flex-direction: column; align-items: flex-start; font-size: 12px; } .task-progress-summary strong { font-size: 15px; } }
+
+/* Unknown sample counts never resemble a partially completed percentage. */
+.run-progress-track.unknown > i { width: 0; animation: none; }
+.phase-spinner { width: 12px; height: 12px; border: 2px solid #c9bcff; border-top-color: var(--primary); border-radius: 50%; animation: phase-spin 1s linear infinite; }
+@keyframes phase-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .phase-spinner { animation: none; border-color: var(--primary); } }

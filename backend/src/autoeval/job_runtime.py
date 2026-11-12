@@ -20,6 +20,12 @@ def atomic_json(path, value):
     os.replace(tmp, path)
 
 
+def write_credential(path, credential):
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as stream:
+        json.dump({"value": credential}, stream)
+
+
 def identity(pid):
     # /proc stat's comm may contain spaces or parentheses.
     return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
@@ -47,12 +53,37 @@ def inspect_job(folder):
 
 
 def child(folder):
+    os.umask(0o077)
     spec = json.loads((folder / "spec.json").read_text())
 
     def cancelled(signum, frame):
         atomic_json(folder / "exit.json", {"state": "cancelled"})
         raise SystemExit(0)
 
+    if spec.get("kind") != "framework_smoke":
+        from planning_runtime import controlled_failure_reason, execute
+
+        def cancel_controlled(signum, frame):
+            (folder / "credential.json").unlink(missing_ok=True)
+            (folder / "private-config.json").unlink(missing_ok=True)
+            harbor = (
+                spec.get("compilation", {}).get("config", {}).get("subcommand") == "harbor_agent"
+            )
+            atomic_json(folder / "exit.json", {"state": "cancelled", "cleanup_pending": harbor})
+            raise SystemExit(0)
+
+        signal.signal(signal.SIGTERM, cancel_controlled)
+        try:
+            result = execute(folder, spec)
+            atomic_json(folder / "result.json", result)
+            atomic_json(folder / "exit.json", {"state": "succeeded"})
+        except Exception as exc:  # noqa: BLE001 -- isolate third-party errors without leaking credentials
+            # Persist only allowlisted reason codes, never third-party response text.
+            atomic_json(
+                folder / "exit.json",
+                {"state": "failed", "reason": controlled_failure_reason(spec, exc)},
+            )
+        return
     signal.signal(signal.SIGTERM, cancelled)
     time.sleep(spec["duration_seconds"])
     atomic_json(
@@ -87,19 +118,30 @@ def main():
             if (folder / "cleanup.json").exists():
                 raise ValueError("Cleaned submission key cannot be reused")
             spec = json.load(sys.stdin)
-            if set(spec) != {"kind", "duration_seconds"} or spec["kind"] != "framework_smoke":
-                raise ValueError("Unsupported job specification")
-            if (
-                not isinstance(spec["duration_seconds"], int)
-                or not 0 <= spec["duration_seconds"] <= 30
-            ):
-                raise ValueError("Invalid smoke duration")
+            credential = None
+            if spec.get("kind") == "framework_smoke":
+                if (
+                    set(spec) != {"kind", "duration_seconds"}
+                    or type(spec["duration_seconds"]) is not int
+                    or not 0 <= spec["duration_seconds"] <= 30
+                ):
+                    raise ValueError("Invalid smoke specification")
+            else:
+                from planning_runtime import validate_spec
+
+                validate_spec(spec)
+                credential = spec.pop("credential")
+                spec["credential"] = "runtime-only"
             digest = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()
             if (folder / "spec_hash").exists():
                 if (folder / "spec_hash").read_text() != digest:
                     raise ValueError("Submission key reused with different specification")
             else:
                 (folder / "spec_hash").write_text(digest)
+                folder.chmod(0o700)
+                if credential is not None:
+                    secret_path = folder / "credential.json"
+                    write_credential(secret_path, credential)
                 atomic_json(folder / "spec.json", spec)
                 with (folder / "output.log").open("ab") as log:
                     proc = subprocess.Popen(
@@ -129,17 +171,36 @@ def main():
                 return
             if cleanup is None:
                 state = inspect_job(folder)
+                spec_path = folder / "spec.json"
+                saved_spec = json.loads(spec_path.read_text()) if spec_path.exists() else {}
+                harbor = (
+                    saved_spec.get("compilation", {}).get("config", {}).get("subcommand")
+                    == "harbor_agent"
+                )
+                if harbor and state["state"] in {"cancelled", "failed"}:
+                    print(
+                        json.dumps(
+                            {
+                                **state,
+                                "cleaned": False,
+                                "cleanup_pending": True,
+                                "reason": "Harbor external container ownership must be verified before reclaim",
+                            }
+                        )
+                    )
+                    return
                 if state["state"] not in {"succeeded", "failed", "cancelled"}:
                     print(json.dumps({**state, "cleaned": False}))
                     return
                 observed_state = state["state"]
-                atomic_json(
-                    cleanup_path, {"state": "cleaning", "observed_state": observed_state}
-                )
+                atomic_json(cleanup_path, {"state": "cleaning", "observed_state": observed_state})
             else:
                 observed_state = cleanup["observed_state"]
             for path in folder.iterdir():
                 if path.name not in {".lock", "cleanup.json"}:
+                    if path.is_dir():
+                        # Artifacts remain in the owned job directory; no recursive deletion.
+                        continue
                     path.unlink()
             atomic_json(cleanup_path, {"state": "cleaned"})
             print(

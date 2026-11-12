@@ -1,0 +1,23 @@
+{
+  "AutomationBench": {
+    "metric": "task pass rate / %",
+    "version": "v1.0.6（2026-07-31）",
+    "scope": "公开计分集 600 题；6 领域各 100 题；simple 200 题不计分",
+    "source": "https://github.com/zapier/AutomationBench",
+    "note": "官方线上榜单使用独立私有题集，不能与本地公开集分数直接等同。AISBench 接入另需核验。"
+  },
+  "DeepSWE": {
+    "metric": "pass@1 / %",
+    "version": "v1.1",
+    "scope": "官方榜单任务集 113 题；与其他版本分开",
+    "source": "https://deepswe.datacurve.ai/",
+    "note": "保留 harness、推理强度及采样条件；快照时间不代表逐模型评测时间。AISBench 接入另需核验。"
+  },
+  "GPQA-Diamond": {
+    "metric": "accuracy（选择题） / %",
+    "version": "Diamond 子集；修订由仓库提交固定",
+    "scope": "仅 Diamond 子集，不与 GPQA Main 或 Extended 混用",
+    "source": "https://github.com/idavidrein/gpqa",
+    "note": "原始试题需遵循官方访问条件；此次仅抓取公开说明，不下载或公开题目。AISBench 接入另需核验。"
+  }
+}

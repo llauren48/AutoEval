@@ -1,8 +1,6 @@
-diff --git a/ais_bench/benchmark/runners/local.py b/ais_bench/benchmark/runners/local.py
-index 482a403..b24b86e 100644
 --- a/ais_bench/benchmark/runners/local.py
 +++ b/ais_bench/benchmark/runners/local.py
-@@ -89,15 +89,27 @@ class LocalRunner(BaseRunner):
+@@ -89,15 +89,29 @@
              tasks_monitor = TasksMonitor(task_names, output_path, is_debug, refresh_interval)
              server = None
              if not is_debug and monitor_port:
@@ -25,13 +23,15 @@ index 482a403..b24b86e 100644
 +                final_path = os.environ.get("AE_MONITOR_FINAL")
 +                if final_path:
 +                    snapshot = tasks_monitor.get_task_states_snapshot()
++                    if not any(t.get("progress_detail", {}).get("total_count") is not None for t in snapshot) and os.path.exists(final_path):
++                        final_path += ".evaluation"
 +                    with open(final_path + ".tmp", "w") as fp:
 +                        __import__("json").dump({"tasks": snapshot, "work_dir": output_path}, fp, default=str)
 +                    os.replace(final_path + ".tmp", final_path)
                  if server is not None:
                      server.stop()
          monitor_p = multiprocessing.Process(
-@@ -126,7 +138,16 @@ class LocalRunner(BaseRunner):
+@@ -126,7 +140,16 @@
              all_gpu_ids = list(range(device_nums))
  
          self.logger.debug(f"Available devices: {all_gpu_ids} (total: {device_nums}, type: {visible_devices})")

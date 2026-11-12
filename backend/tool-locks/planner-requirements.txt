@@ -1,0 +1,4 @@
+# Source archive of the same revision pinned in pyproject.toml/uv.lock.
+# Planner has no runtime dependencies. Keep the archive digest aligned on upgrades.
+autoeval-task-planner @ https://codeload.github.com/SJTUyh/AutoEval-Task-Planner/tar.gz/0ee9abf49a57c5accc62df8900693cdcea88ea9a \
+    --hash=sha256:07b3684533f691b38e1404e7d093d3134c35ed8ce7b4913858d9f10ee67e9fb9

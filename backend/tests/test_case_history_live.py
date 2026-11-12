@@ -77,11 +77,26 @@ async def test_fail_retry_success_preserves_both_evidence_and_rejects_overwrite(
                 state="succeeded", prompt="Fixture prompt", response="", finish_reason="length"
             ),
         )
-        history = (
+        page = (
             await api.get(f"{prefix}/runs/{run_id}/case-executions?sample_id=case-1")
-        ).json()["data"]
+        ).json()
+        history = page["data"]
+        assert page["total"] == 2
         assert [r["state"] for r in history] == ["failed", "succeeded"]
         assert [r["attempt_no"] for r in history] == [1, 2]
+        failed_page = (
+            await api.get(f"{prefix}/runs/{run_id}/case-executions?state=failed&sample_id=case-1")
+        ).json()
+        assert failed_page["total"] == 1
+        succeeded_only = (
+            await api.get(
+                f"{prefix}/runs/{run_id}/case-executions?state=succeeded&sample_id=case-1"
+            )
+        ).json()["data"]
+        assert [r["state"] for r in succeeded_only] == ["succeeded"]
+        assert (
+            await api.get(f"{prefix}/runs/{run_id}/case-executions?state=unknown")
+        ).status_code == 422
         old = (await api.get(f"{prefix}/case-executions/{first}/evidence")).json()["data"]
         assert old["error_code"] == "UPSTREAM_TIMEOUT"
         new = (await api.get(f"{prefix}/case-executions/{second}/evidence")).json()["data"]

@@ -1,4 +1,4 @@
-import { RunMonitor } from "./RunMonitor";
+import { RunMonitor, RunProgress } from "./RunMonitor";
 import { SearchableSelect } from "./SearchableSelect";
 import { CopyIdentifier } from "./CopyIdentifier";
 import { SubmissionReview } from "./SubmissionReview";
@@ -40,8 +40,6 @@ export function EvaluationRuns({ runId = "", initialTarget = "", allowSubmit = t
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState("");
   const [detailTab, setDetailTab] = useState("执行进度");
-  const [datasetOpen, setDatasetOpen] = useState(false);
-  const [caseOpen, setCaseOpen] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [lastRefresh, setLastRefresh] = useState(0);
   const [detailError, setDetailError] = useState("");
@@ -117,7 +115,7 @@ export function EvaluationRuns({ runId = "", initialTarget = "", allowSubmit = t
     <div className="stack evaluation-runs">
       {allowSubmit && (
         <section className="card stack">
-          <div><h2>新建探索测评</h2><p className="muted">GPQA Lite 使用固定原生 AISBench 路径，每次最多 5 个样本、每样本最多 64 输出 tokens，无自动重测。</p></div>
+          <div><h2>新建探索测评</h2><p className="muted">GPQA Lite 使用固定原生 AISBench 路径，每次最多 5 个样本；远程 AISBench 最多 2048 输出 tokens，其他兼容路径最多 64，无自动重测。</p></div>
           <p><a href="#console">登记模型、服务与资源</a> · <a href="#config">维护配置、清单与 Profile</a></p>
           <label>探索模型服务 <SearchableSelect aria-label="探索模型服务" value={target?.id || ""} disabled={busy || targets.loading} onChange={(event) => setTarget(targetRows.find((row) => row.id === event.target.value) || null)}><option value="">请选择官方DeepSeek目标</option>{targetRows.map((row) => <option key={row.id} value={row.id}>{row.model_key} / {row.model_version} · {row.remote_model} · {row.id.slice(0, 8)}</option>)}</SearchableSelect></label>
           <label>探索配置 <SearchableSelect aria-label="探索配置" value={config?.id || ""} disabled={busy || loadingDefault} onChange={(event) => { setConfig(configRows.find((row) => row.id === event.target.value) || null); setDefaultError(""); }}><option value="">请选择已绑定Profile的Lite配置</option>{configRows.map((row) => <option key={row.id} value={row.id}>{row.display_name} · {row.version_label}</option>)}</SearchableSelect></label>
@@ -167,17 +165,24 @@ export function EvaluationRuns({ runId = "", initialTarget = "", allowSubmit = t
             <span>资源 <b>{resourceLabel(detail.snapshot?.resource_kind)}</b></span>
             <span>发布门禁 <b>不适用</b></span>
           </div>
-          <div className="tabs">{["执行进度", "配置快照"].map((name) => <button key={name} className={detailTab === name ? "active" : ""} onClick={() => setDetailTab(name)}>{name}</button>)}</div>
+          <div className="tabs">{["执行进度", "监控", "配置快照"].map((name) => <button key={name} className={detailTab === name ? "active" : ""} onClick={() => setDetailTab(name)}>{name}</button>)}</div>
           {detail.execution_unresolved && <p className="notice" role="alert">执行状态待查证，资源占用和已有记录已保留，请勿重复提交。</p>}
-          {detailTab === "配置快照" ? <section data-testid="run-snapshot"><h3>本次配置快照</h3><dl className="detail-properties"><div><dt>执行参数</dt><dd>{detail.snapshot?.parameters ? Object.entries(detail.snapshot.parameters).map(([key, value]) => `${({output:"回答长度", concurrency:"并发数", temperature:"随机性", top_p:"候选范围", scope:"范围"} as Record<string,string>)[key] || key}：${String(value)}`).join("；") : "暂无信息"}</dd></div><div><dt>样本清单</dt><dd>{detail.snapshot?.manifest_id || "暂无信息"}</dd></div><div><dt>工具版本</dt><dd>{String(detail.snapshot?.tool?.revision || "暂无信息")}</dd></div></dl><p className="muted">本次提交时冻结，后续配置修改不会影响历史任务。</p><dl className="detail-properties"><div><dt>模型</dt><dd>{detail.snapshot?.remote_model || "—"}</dd></div><div><dt>样本数</dt><dd>{detail.snapshot?.sample_count ?? "—"}</dd></div><div><dt>配置版本</dt><dd>{detail.snapshot?.config_version_id || "—"}</dd></div></dl><ManagementDrawer title="查看完整快照与校验值"><pre className="snapshot">{JSON.stringify(detail.snapshot, null, 2)}</pre></ManagementDrawer></section> : <>
-            <div className="spread">{datasetOpen ? <button className="link" onClick={() => { setDatasetOpen(false); setCaseOpen(false); }}>返回任务总览</button> : <h3>任务总览</h3>}<span className="muted">{datasetOpen ? "GPQA · Lite" : "1 个数据集"}</span></div>
-            <section className="detail-progress"><div className="spread"><b>{datasetOpen ? "GPQA 执行状态" : "整体执行状态"}</b><span>{stateLabel(detail.state)}</span></div>{detailError && <p className="notice" role="alert">当前展示为上次查询结果，状态可能过期；恢复连接后自动刷新。</p>}{detail.state === "failed" && <p role="alert">执行失败。请查看 Case 的错误类别和证据，确认原因后再决定后续操作。<button className="link" onClick={() => { setDatasetOpen(true); setCaseOpen(true); }}>定位失败记录</button></p>}<p>当前阶段：{({ accepted: "已接收，等待调度", queued: "排队中", preparing: "准备执行环境", running: "测评执行中", aggregating: "收集结果与生成报告", completed: "执行结束", cancelling: "取消确认中，仍可能保留资源占用", cancelled: "取消已确认", failed: "执行失败" } as Record<string, string>)[detail.state] || "状态待确认"}</p>{detail.cancel_requested_at && <p>取消请求：{time(detail.cancel_requested_at)}；以终止确认及清理状态为准。</p>}<p className="muted">{detail.report ? "报告已归档，当前仅展示历史执行统计；成绩与证据完整性请查看报告。" : "报告尚未归档，暂不展示未经确认的样本进度。"}</p></section>
+          {detailTab === "配置快照" ? <section data-testid="run-snapshot"><h3>本次配置快照</h3><dl className="detail-properties"><div><dt>执行参数</dt><dd>{detail.snapshot?.parameters ? Object.entries(detail.snapshot.parameters).map(([key, value]) => `${({output:"回答长度", concurrency:"并发数", temperature:"随机性", top_p:"候选范围", scope:"范围"} as Record<string,string>)[key] || key}：${String(value)}`).join("；") : "暂无信息"}</dd></div><div><dt>样本清单</dt><dd>{detail.snapshot?.manifest_id || "暂无信息"}</dd></div><div><dt>工具版本</dt><dd>{String(detail.snapshot?.tool?.revision || "暂无信息")}</dd></div></dl><p className="muted">本次提交时冻结，后续配置修改不会影响历史任务。</p><dl className="detail-properties"><div><dt>模型</dt><dd>{detail.snapshot?.remote_model || "—"}</dd></div><div><dt>样本数</dt><dd>{detail.snapshot?.sample_count ?? "—"}</dd></div><div><dt>配置版本</dt><dd>{detail.snapshot?.config_version_id || "—"}</dd></div></dl><ManagementDrawer title="查看完整快照与校验值"><pre className="snapshot">{JSON.stringify(detail.snapshot, null, 2)}</pre></ManagementDrawer></section> : detailTab === "监控" ? (
             <RunMonitor runId={detail.id} terminal={terminal(detail.state)} />
-            <div className="task-overview-stats">{[["计划样本", detail.snapshot?.sample_count], ["执行成功", detail.report?.summary.successful_samples], ["执行失败", detail.report?.summary.failed_samples], ["缺测样本", detail.report?.summary.missing_samples], ["判分通过", "—"], ["判分未通过", "—"]].map(([label, value]) => <div className="case-stat" key={String(label)}><span>{String(label)}</span><strong>{value === undefined ? "—" : String(value)}</strong></div>)}</div>
-            {!datasetOpen ? <div className="table-wrap"><table><thead><tr><th>数据集</th><th>状态</th><th>范围 / 样本数</th><th>报告状态</th><th>操作</th></tr></thead><tbody><tr><td>GPQA</td><td>{stateLabel(detail.state)}</td><td>Lite · {detail.snapshot?.sample_count ?? "—"}</td><td>{detail.report ? "已归档，待核验证据" : "待生成"}</td><td><button className="link" onClick={() => setDatasetOpen(true)}>查看明细</button></td></tr></tbody></table></div> : <>
-              <div className="tabs">{[false, true].map((value) => <button key={String(value)} className={caseOpen === value ? "active" : ""} onClick={() => setCaseOpen(value)}>{value ? "Case 明细" : "执行概况"}</button>)}</div>
-              {caseOpen ? <CaseHistory key={detail.id} initialRun={detail.id} /> : <section className="detail-progress"><h3>执行概况</h3><p>执行状态：{stateLabel(detail.state)}。执行成功与判分通过分别记录。</p><button className="link" onClick={() => setCaseOpen(true)}>查看 Case 明细与日志</button></section>}
-            </>}
+          ) : <>
+            <section className="detail-progress">
+              <div className="spread"><b>GPQA 执行状态</b><span>{stateLabel(detail.state)} · GPQA Lite</span></div>
+              {detailError && <p className="notice" role="alert">当前展示为上次查询结果，状态可能过期；恢复连接后自动刷新。</p>}
+              {detail.state === "failed" && <p role="alert">执行失败。请查看下方 Case 的错误类别和证据，确认原因后再决定后续操作。<button className="link" onClick={() => document.getElementById("case-detail")?.scrollIntoView({ behavior: "smooth", block: "start" })}>定位失败记录</button></p>}
+              <RunProgress runId={detail.id} terminal={terminal(detail.state)} state={detail.state} createdAt={detail.created_at} events={detail.events} stage={({ accepted: "已接收，等待调度", queued: "排队中", preparing: "准备执行环境", running: "测评执行中", aggregating: "收集结果与生成报告", completed: "执行结束", cancelling: "取消确认中，仍可能保留资源占用", cancelled: "取消已确认", failed: "执行失败" } as Record<string, string>)[detail.state] || "状态待确认"} />
+              {detail.cancel_requested_at && <p>取消请求：{time(detail.cancel_requested_at)}；以终止确认及清理状态为准。</p>}
+              <p className="muted">{detail.report ? "报告已归档，当前仅展示历史执行统计；成绩与证据完整性请查看报告。" : "报告尚未归档；工具进度来自监控观测，不代表评分结论。"}</p>
+              <p className="muted">执行成功与判分通过分别记录；Case 列表保留每次尝试，缺失值不补零。</p>
+            </section>
+            <div className="task-overview-stats">{[["计划样本", detail.snapshot?.sample_count], ["执行成功", detail.report?.summary.successful_samples], ["执行失败", detail.report?.summary.failed_samples], ["缺测样本", detail.report?.summary.missing_samples], ["判分准确率", typeof detail.report?.summary.accuracy === "number" ? `${detail.report.summary.accuracy}%` : "—"], ["报告有效性", detail.report?.validity || "—"]].map(([label, value]) => <div className="case-stat" key={String(label)}><span>{String(label)}</span><strong>{value === undefined || value === null ? "—" : String(value)}</strong></div>)}</div>
+            <section id="case-detail" data-testid="case-detail">
+              <CaseHistory key={`${detail.id}:${terminal(detail.state)}`} initialRun={detail.id} />
+            </section>
             <div className="detail-bottom-meta"><span data-testid="cleanup-state">资源清理：{({ not_required: "无需清理", not_scheduled: "尚未安排", pending: "待清理", running: "清理中", failed: "待恢复，保留占用", cleaned: "已确认" } as Record<string, string>)[detail.cleanup.state] || "待确认"}</span>{["failed", "not_scheduled"].includes(detail.cleanup.state) && detail.report && <button disabled={busy} onClick={() => void action("cleanup")}>重试资源清理</button>}<ManagementDrawer title="任务标识与归档记录"><h3>状态记录</h3><ol>{detail.events?.map((event) => <li key={event.seq}>{time(event.created_at)} · {({ accepted: "已接收", queued: "排队", preparing: "准备环境", running: "开始执行", aggregating: "汇总结果", completed: "执行完成", failed: "执行失败", cancelled: "取消确认", cancelling: "取消中", execution_unresolved: "结果待查证", execution_cleaned: "清理确认", execution_cleanup_pending: "等待清理" } as Record<string, string>)[event.type] || "状态变更"}</li>)}</ol><p>运行 ID：{detail.id}</p><CopyIdentifier value={detail.id} /><p>清理尝试：{detail.cleanup.attempt_count} 次</p><p data-testid="evaluation-validity">历史报告状态：{detail.report?.validity || "未归档"}</p><p>历史摘要不代表当前证据完整，成绩以报告核验结果为准。</p><pre className="snapshot" data-testid="evaluation-summary">{JSON.stringify(detail.report?.summary || {}, null, 2)}</pre></ManagementDrawer></div>
           </>}
         </article>

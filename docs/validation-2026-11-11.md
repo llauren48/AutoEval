@@ -78,7 +78,7 @@
 - 浏览器专项与后端专项原同名 `test_standard_inputs.py`，在非 package 测试目录中发生模块导入冲突。连续3次最小收集均为1个收集错误；浏览器文件改名为 `test_browser_standard_inputs.py` 后，联合收集25项成功，最终默认全量测试通过。
 - 六组固定来源均缺 `benchmark_config.json`。原编译器只设置 `startup_missing`，未阻断空平台模板，导致仅有用户调整时也返回 `input_ready=true`。新增六组回归在修复前连续3次均为6项失败；修复后要求缺启动配置时提供含非空 `params` 的版本化平台模板，否则返回 `startup_template_required`，用户调整不能替代。
 - 反向临时移除编译阻断后，新增回归再次为6项失败；恢复后两项相关参数化测试合计12项通过。六组完整输入与适配器 prepare 均显式使用平台模板。
-- 浏览器专项增加非空模板提示、模板请求内容和锁定字段检查；为启动模板文本框补充明确的可访问标签。浏览器 API 仍为模拟响应，不声称完成真实 API/GitHub 页面联调。
+- 浏览器专项增加非空模板提示、模板请求内容和锁定字段检查；为启动模板文本框补充明确的可访问标签。该专项使用模拟 API；真实 GitHub、真实 API 与浏览器端到端结果另见下节。
 
 ### 实际执行结果
 
@@ -94,3 +94,13 @@
 | `test_browser_standard_inputs.py` | **1 passed**；本机 Vite 与 Chrome，覆盖预览、差异、登记、模型/服务映射、非空模板、抽屉、锁定字段、脱敏及禁止运行入口；路由守卫确认无真实写请求 |
 
 适配器源码仅克隆到临时目录并检出固定提交，未修改上游仓库。本轮没有调用模型、没有创建测评 Docker、没有启动真实测评，也没有接入输出解析、结果收集、报告、批准基线或门禁。数据库迁移为 `0023_standard_inputs`；其他环境仍需先执行迁移并重启 API。
+
+### 真实 GitHub 同步端到端联调
+
+- 真实链路为 Chrome → Vite `127.0.0.1:5173` → FastAPI `127.0.0.1:8000` → GitHub `SJTUyh/AutoEval-Standard` → PostgreSQL。重启既有 API 加载新路由后，`sync-preview` 固定到 `2f8f167a68f86ee022afcc7f2ae2b62bc2e6d2a2`，返回6组配置及来源附件，预览 SHA-256 为 `57d1f1dd5d9b35183fe97963950ce7927d1d12f5ceff2a51758587309bd5ce3e`。
+- 企业代理链包含自签名 CA；API 使用从 Windows 受信根存储导出的临时 CA 包并通过 `SSL_CERT_FILE` 保持证书校验。本机脚本仅对 loopback 客户端设置 `trust_env=False`，避免本机代理拦截本地 POST；未关闭 TLS 校验，未绕过 GitHub 内容检查。
+- 真实 API 导入返回201；相同 bundle 再次导入的6个 ID 完全一致。数据库复核该提交恰有6条记录、6个唯一 ID，全部 `execution_enabled=false`、`approval_status=not_approved`。详情 `e1e1e8ca-5fe9-428a-81d3-9300270336c8` 可直接读取，版本与固定提交一致。
+- 浏览器未使用 Mock：预览展示完整提交和6条记录，两个来源模型均覆盖 DeepSWE、GPQA_Diamond、MMMU-Pro；点击“确认登记输入版本”显示“标准输入已登记，配置未批准，执行未开放”。请求证据为 `sync-preview` 200、`import` 201、版本列表200。
+- 页面打开 `DeepSeek-V4.1-Flash-1017 / DeepSWE` 详情，显示映射 `DeepSWE / v1.1`、17个锁定字段、内容 SHA-256 `fda94f7d43d30f1272a23bc27097c753f18174b49819d7b7aa87709a489e9b55` 及“未批准 · 未开放执行”。首次详情读取被浏览器中止，随后相同 URL 重试返回200；未观察到 HTTP 4xx/5xx。
+
+至此，原方案的真实 GitHub 同步、真实后端和浏览器端到端联调边界已补齐。该结论仍仅限输入侧，不开启执行、结果、报告或门禁验收。

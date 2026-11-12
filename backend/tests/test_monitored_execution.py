@@ -259,7 +259,7 @@ async def test_success_final_archival_and_terminal_replay_are_idempotent(harness
     result = await monitored_execution.execute_monitored_gpqa(str(run.id))
     assert result["accuracy"] == 100
     gateway = FakeGateway.instances[-1]
-    assert gateway.payloads[0]["config"]["params"]["retry"] == 0
+    assert gateway.payloads[0]["config"]["params"]["retry"] == 1
     assert gateway.payloads[0]["budget"]["max_model_requests"] == 1
     assert gateway.calls.count("submit") == 1
     async with harness.sessions() as session:

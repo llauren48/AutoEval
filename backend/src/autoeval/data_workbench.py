@@ -85,25 +85,35 @@ def development(request: Request):
 
 
 router = APIRouter(
-    prefix="/api/autoeval/v1/data-workbench", tags=["data workbench"],
+    prefix="/api/autoeval/v1/data-workbench",
+    tags=["data workbench"],
     dependencies=[Depends(development)],
 )
 
 
 def view(row):
     return {
-        "id": str(row.id), "state": row.state, "revision": row.revision,
-        "created_at": row.created_at.isoformat(), "entry": row.payload,
+        "id": str(row.id),
+        "state": row.state,
+        "revision": row.revision,
+        "created_at": row.created_at.isoformat(),
+        "entry": row.payload,
     }
 
 
 def audit(session, request, row, action, reason):
-    session.add(AuditEvent(
-        actor="local-operator", action=action, resource_type="leaderboard_record",
-        resource_id=str(row.id), run_id=None, outcome=row.state,
-        request_id=request.state.request_id,
-        details={"revision": row.revision, "reason": reason, "entry": row.payload},
-    ))
+    session.add(
+        AuditEvent(
+            actor="local-operator",
+            action=action,
+            resource_type="leaderboard_record",
+            resource_id=str(row.id),
+            run_id=None,
+            outcome=row.state,
+            request_id=request.state.request_id,
+            details={"revision": row.revision, "reason": reason, "entry": row.payload},
+        )
+    )
 
 
 async def validate_report(request, session, entry):
@@ -117,8 +127,10 @@ async def validate_report(request, session, entry):
     run = await session.get(EvaluationRun, report.run_id)
     snapshot = await session.scalar(select(RunSnapshot).where(RunSnapshot.run_id == report.run_id))
     if (
-        report.validity != "complete" or report.execution_origin != "real"
-        or snapshot is None or run.trigger_scope != "local-operator:evaluation"
+        report.validity != "complete"
+        or report.execution_origin != "real"
+        or snapshot is None
+        or run.trigger_scope != "local-operator:evaluation"
         or await report_evidence_status(request.app.state.settings, report, run, snapshot)
         != "verified"
     ):
@@ -130,14 +142,21 @@ async def validate_report(request, session, entry):
         **frozen["parameters"],
     }
     if (
-        entry.source_key != "report-" + str(report.id) or entry.source_name != "AutoEval"
-        or entry.model_name != frozen["remote_model"] or entry.dataset != "GPQA"
-        or entry.metric != "accuracy" or entry.unit != "%" or entry.scope != "lite"
-        or entry.direction != "higher_is_better" or entry.value != report.summary.get("accuracy")
-        or entry.conditions != expected_conditions or entry.source_sha256 != report.sha256
+        entry.source_key != "report-" + str(report.id)
+        or entry.source_name != "AutoEval"
+        or entry.model_name != frozen["remote_model"]
+        or entry.dataset != "GPQA"
+        or entry.metric != "accuracy"
+        or entry.unit != "%"
+        or entry.scope != "lite"
+        or entry.direction != "higher_is_better"
+        or entry.value != report.summary.get("accuracy")
+        or entry.conditions != expected_conditions
+        or entry.source_sha256 != report.sha256
         or entry.source_version != str(report.id)
     ):
         raise HTTPException(422, "Report entry differs from original score or frozen conditions")
+    return frozen
 
 
 @router.get("/entries")
@@ -145,11 +164,18 @@ async def entries(request: Request, offset: int = 0, limit: int = 20):
     if offset < 0 or not 1 <= limit <= 100:
         raise HTTPException(422, "Invalid pagination")
     async with request.app.state.sessions() as session:
-        rows = (await session.scalars(select(LeaderboardRecord).order_by(
-            LeaderboardRecord.created_at.desc(), LeaderboardRecord.id.desc()
-        ).offset(offset).limit(limit + 1))).all()
-        return {"data": [view(row) for row in rows[:limit]],
-                "next_offset": offset + limit if len(rows) > limit else None}
+        rows = (
+            await session.scalars(
+                select(LeaderboardRecord)
+                .order_by(LeaderboardRecord.created_at.desc(), LeaderboardRecord.id.desc())
+                .offset(offset)
+                .limit(limit + 1)
+            )
+        ).all()
+        return {
+            "data": [view(row) for row in rows[:limit]],
+            "next_offset": offset + limit if len(rows) > limit else None,
+        }
 
 
 @router.post("/entries", status_code=201)
@@ -157,18 +183,27 @@ async def create(body: EntryInput, request: Request):
     async with request.app.state.sessions() as session, session.begin():
         # Serialize source identity to make import retries safe across processes.
         from sqlalchemy import text
-        await session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-                              {"key": "leaderboard:" + body.source_key})
+
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": "leaderboard:" + body.source_key},
+        )
         payload = body.model_dump(mode="json")
-        existing = await session.scalar(select(LeaderboardRecord).where(
-            LeaderboardRecord.source_key == body.source_key))
+        existing = await session.scalar(
+            select(LeaderboardRecord).where(LeaderboardRecord.source_key == body.source_key)
+        )
         if existing:
             if existing.payload != payload:
                 raise HTTPException(409, "Source key already exists with different content")
             return {"data": view(existing)}
         await validate_report(request, session, body)
-        row = LeaderboardRecord(source_key=body.source_key, report_id=body.report_id,
-                                state="draft", revision=1, payload=payload)
+        row = LeaderboardRecord(
+            source_key=body.source_key,
+            report_id=body.report_id,
+            state="draft",
+            revision=1,
+            payload=payload,
+        )
         session.add(row)
         await session.flush()
         audit(session, request, row, "leaderboard_created", "录入待评审数据")
@@ -178,8 +213,9 @@ async def create(body: EntryInput, request: Request):
 @router.post("/entries/{entry_id}/edit")
 async def edit(entry_id: uuid.UUID, body: EditInput, request: Request):
     async with request.app.state.sessions() as session, session.begin():
-        row = await session.scalar(select(LeaderboardRecord).where(
-            LeaderboardRecord.id == entry_id).with_for_update())
+        row = await session.scalar(
+            select(LeaderboardRecord).where(LeaderboardRecord.id == entry_id).with_for_update()
+        )
         if row is None:
             raise HTTPException(404, "Entry not found")
         if row.revision != body.expected_revision or row.state == "approved":
@@ -197,14 +233,18 @@ async def edit(entry_id: uuid.UUID, body: EditInput, request: Request):
 @router.post("/entries/{entry_id}/review")
 async def review(entry_id: uuid.UUID, body: Decision, request: Request):
     async with request.app.state.sessions() as session, session.begin():
-        row = await session.scalar(select(LeaderboardRecord).where(
-            LeaderboardRecord.id == entry_id).with_for_update())
+        row = await session.scalar(
+            select(LeaderboardRecord).where(LeaderboardRecord.id == entry_id).with_for_update()
+        )
         if row is None:
             raise HTTPException(404, "Entry not found")
         if row.revision != body.expected_revision:
             raise HTTPException(409, "Version conflict; reload before review")
-        allowed = {"approve": ("draft", "approved"), "reject": ("draft", "rejected"),
-                   "withdraw": ("approved", "withdrawn")}
+        allowed = {
+            "approve": ("draft", "approved"),
+            "reject": ("draft", "rejected"),
+            "withdraw": ("approved", "withdrawn"),
+        }
         before, after = allowed[body.action]
         if row.state != before:
             raise HTTPException(409, "Invalid review transition")
@@ -216,37 +256,80 @@ async def review(entry_id: uuid.UUID, body: Decision, request: Request):
         return {"data": view(row)}
 
 
+def best_per_model(rows, direction):
+    """Input is newest first; equal scores retain the newest immutable source."""
+    selected = {}
+    for row in rows:
+        key = row.get("model_id") or row["entry"]["model_name"]
+        previous = selected.get(key)
+        value = row["entry"]["value"]
+        if previous is None or (
+            value > previous["entry"]["value"]
+            if direction == "higher_is_better"
+            else value < previous["entry"]["value"]
+        ):
+            selected[key] = row
+    return list(selected.values())
+
+
 @router.get("/published")
-async def published(request: Request):
+async def published(request: Request, selection: Literal["best", "all"] = "best"):
     async with request.app.state.sessions() as session:
-        rows = (await session.scalars(select(LeaderboardRecord).where(
-            LeaderboardRecord.state == "approved").order_by(
-                LeaderboardRecord.created_at.desc(), LeaderboardRecord.id.desc()))).all()
+        rows = (
+            await session.scalars(
+                select(LeaderboardRecord)
+                .where(LeaderboardRecord.state == "approved")
+                .order_by(LeaderboardRecord.created_at.desc(), LeaderboardRecord.id.desc())
+            )
+        ).all()
         groups = {}
         for row in rows:
             entry = EntryInput.model_validate(row.payload)
+            frozen = None
             if entry.source_type == "report":
                 try:
-                    await validate_report(request, session, entry)
+                    frozen = await validate_report(request, session, entry)
                 except HTTPException:
                     continue
-            identity = {key: row.payload[key] for key in (
-                "dataset", "metric", "unit", "direction", "scope", "conditions",
-                "source_type", "source_name", "source_version",
-            )}
+            identity = {
+                key: row.payload[key]
+                for key in (
+                    "dataset",
+                    "metric",
+                    "unit",
+                    "direction",
+                    "scope",
+                    "conditions",
+                    "source_type",
+                    "source_name",
+                    "source_version",
+                )
+            }
             # Report IDs are provenance, not comparison groups.
             if entry.source_type == "report":
                 identity.pop("source_version")
-            if any(str(value).strip().lower() in {"unknown", "未知", "未提供", "待确认"}
-                   for value in entry.conditions.values()):
+                identity["config_version_id"] = frozen.get("config_version_id") if frozen else None
+            if any(
+                str(value).strip().lower() in {"unknown", "未知", "未提供", "待确认"}
+                for value in entry.conditions.values()
+            ):
                 identity["unconfirmed_condition_record"] = str(row.id)
             digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
             group = groups.setdefault(digest, {"id": digest, "comparison": identity, "entries": []})
-            if not any(v["entry"]["model_name"] == entry.model_name for v in group["entries"]):
-                group["entries"].append(view(row))
+            item = view(row)
+            item["model_id"] = frozen.get("model_version_id") if frozen else entry.model_name
+            item["config_version_id"] = frozen.get("config_version_id") if frozen else None
+            group["entries"].append(item)
         for group in groups.values():
-            group["entries"].sort(key=lambda v: v["entry"]["value"],
-                                    reverse=group["comparison"]["direction"] == "higher_is_better")
+            group["total_records"] = len(group["entries"])
+            if selection == "best":
+                group["entries"] = best_per_model(
+                    group["entries"], group["comparison"]["direction"]
+                )
+            group["entries"].sort(
+                key=lambda v: v["entry"]["value"],
+                reverse=group["comparison"]["direction"] == "higher_is_better",
+            )
             previous, rank = None, 0
             for position, item in enumerate(group["entries"], 1):
                 if item["entry"]["value"] != previous:

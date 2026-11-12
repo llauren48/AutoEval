@@ -182,7 +182,7 @@ def payload(container, run_id, *, delay=0.5):
                 "monitor_port": env["port"],
                 "work_dir": env["root"] + "/jobs/" + run_id + "/output",
                 "num_prompts": 1,
-                "retry": 0,
+                "retry": 1,
                 "batch_size": 1,
                 "max_num_workers": 1,
                 "max_out_len": 64,

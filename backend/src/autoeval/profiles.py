@@ -58,7 +58,7 @@ class ProfileInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     profile_key: str = Field(pattern=r"^[a-zA-Z0-9_.-]{1,128}$")
     version: str = Field(min_length=1, max_length=128)
-    dataset_name: Literal["GPQA", "MMMU-Pro", "AutomationBench"]
+    dataset_name: Literal["GPQA", "MMMU-Pro", "DeepSWE", "AutomationBench"]
     full_manifest_id: uuid.UUID
     lite_manifest_id: uuid.UUID | None = None
     tool: ToolContract
@@ -103,7 +103,7 @@ async def register_profile(body: ProfileInput, request: Request):
                 lite = await session.get(DatasetManifest, body.lite_manifest_id)
                 if lite is None or lite.scope != "lite" or lite.parent_id != full.id:
                     raise HTTPException(422, "Lite must belong to the selected full manifest")
-            if (body.dataset_name == "AutomationBench") != (body.tool.family == "harbor"):
+            if (body.dataset_name in {"DeepSWE", "AutomationBench"}) != (body.tool.family == "harbor"):
                 raise HTTPException(422, "Dataset and tool family do not match")
             row = EvaluationProfile(
                 profile_key=body.profile_key,

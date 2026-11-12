@@ -39,13 +39,13 @@ def validate_budget(request):
         type(maximum) is not int
         or not 1 <= maximum <= 5
         or type(output_limit) is not int
-        or not 1 <= output_limit <= 64
+        or not 1 <= output_limit <= 2048
     ):
         raise ValueError("Invalid frozen model budget")
     if (
         type(params.get("num_prompts")) is not int
         or not 1 <= params["num_prompts"] <= maximum
-        or params.get("retry") != 0
+        or params.get("retry") != 1
         or params.get("batch_size") != 1
         or params.get("max_num_workers") != 1
         or type(params.get("max_out_len")) is not int

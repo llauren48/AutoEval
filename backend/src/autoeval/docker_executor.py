@@ -84,14 +84,14 @@ class DockerExecutor:
         await self.install_runtime()
         job = JobRef(external_job_id=submission_key, submission_key=submission_key)
         result = await self._invoke("status", submission_key)
-        return JobObservation(job=job, state=result["state"])
+        return JobObservation(job=job, state=result["state"], reason=result.get("reason"))
 
     async def status(self, job: JobRef) -> JobObservation:
         return await self.lookup(job.submission_key)
 
     async def cancel(self, job: JobRef, operation_key: str) -> JobObservation:
         result = await self._invoke("cancel", job.submission_key)
-        return JobObservation(job=job, state=result["state"])
+        return JobObservation(job=job, state=result["state"], reason=result.get("reason"))
 
     async def collect(self, job: JobRef) -> dict:
         return await self._invoke("collect", job.submission_key)

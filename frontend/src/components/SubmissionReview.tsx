@@ -23,7 +23,7 @@ export function SubmissionReview({ config, target, resource, resourceKind, busy,
     setChecking(true); setChecks([]); setConfirmed(false); setCheckedAt(0);
     const results = await Promise.allSettled([
       apiPost<{ outcome: string }>(`/targets/${target.id}/connection-tests`, {}),
-      apiPost<{ environment_ready: boolean; evaluation_ready: boolean }>(`${resourceKind === "customer_ssh" ? "/ssh-resources" : "/resources"}/${resource.id}/validate`, {}),
+      apiPost<{ environment_ready: boolean; evaluation_ready: boolean }>(`${resourceKind === "aisbench_monitor" ? "/aisbench-monitored/resources" : resourceKind === "customer_ssh" ? "/ssh-resources" : "/resources"}/${resource.id}/validate`, {}),
       apiGet<Spec>(`/test-configs/${config.id}/execution-spec`),
     ]);
     if (generation.current !== revision) return;
@@ -32,7 +32,7 @@ export function SubmissionReview({ config, target, resource, resourceKind, busy,
     const hostOK = host.status === "fulfilled" && host.value.environment_ready && (resourceKind !== "customer_ssh" || host.value.evaluation_ready);
     const value = configuration.status === "fulfilled" ? configuration.value : null;
     const params = config.items.GPQA;
-    const configOK = !!value?.bindings_complete && value.spec.items.length === 1 && value.spec.items[0].sample_count > 0 && value.spec.items[0].sample_count <= 5 && params?.scope === "Lite" && params.output > 0 && params.output <= 64 && params.concurrency === 1 && params.temperature === 0 && params.top_p === 1;
+    const configOK = !!value?.bindings_complete && value.spec.items.length === 1 && value.spec.items[0].sample_count > 0 && value.spec.items[0].sample_count <= 5 && params?.scope === "Lite" && params.output > 0 && params.output <= (resourceKind === "aisbench_monitor" ? 2048 : 64) && params.concurrency === 1 && params.temperature === 0 && params.top_p === 1;
     setSpec(value);
     setChecks([
       { label: "模型服务", ok: modelOK, message: modelOK ? "模型列表可达，目标模型存在；未发送生成请求" : "连接未通过，请在管理模型服务中检查地址、凭据和模型名" },

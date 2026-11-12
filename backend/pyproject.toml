@@ -14,6 +14,7 @@ dependencies = [
   "httpx>=0.28,<1",
   "boto3>=1.35,<2",
   "paramiko>=4,<5",
+  "autoeval-task-planner",
 ]
 
 [dependency-groups]
@@ -39,3 +40,6 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+
+[tool.uv.sources]
+autoeval-task-planner = { git = "https://github.com/SJTUyh/AutoEval-Task-Planner", rev = "0ee9abf49a57c5accc62df8900693cdcea88ea9a" }

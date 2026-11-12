@@ -65,8 +65,8 @@ def validate_environment(env):
         constraints["monitor_host"] != "127.0.0.1"
         or env.get("monitor_host", "127.0.0.1") != "127.0.0.1"
         or constraints["max_samples"] != 5
-        or constraints["max_output_tokens"] != 64
-        or constraints["retry"] != 0
+        or constraints["max_output_tokens"] != 2048
+        or constraints["retry"] != 1
     ):
         raise ValueError("Monitor deployment violates the fixed execution constraints")
     return env
@@ -223,13 +223,13 @@ async def submit(
         if (
             params.get("scope") != "Lite"
             or params.get("concurrency") != 1
-            or not 1 <= params.get("output", 0) <= 64
+            or not 1 <= params.get("output", 0) <= 2048
             or params.get("temperature") != 0
             or params.get("top_p") != 1
         ):
             raise HTTPException(
                 422,
-                "Monitored pilot requires Lite, concurrency=1, output<=64, temperature=0, top_p=1",
+                "Monitored pilot requires Lite, concurrency=1, output<=2048, temperature=0, top_p=1",
             )
         binding = await session.scalar(
             select(ConfigDatasetBinding).where(ConfigDatasetBinding.config_item_id == items[0].id)
@@ -301,6 +301,7 @@ async def submit(
             "resource_kind": "aisbench_monitor",
             "resource_id": env["id"],
             "max_model_requests": body.max_model_requests,
+            "max_output_tokens": params["output"],
             "tool": {
                 "revision": env["aisbench_revision"],
                 "source_url": "https://github.com/SJTUyh/benchmark",
@@ -622,7 +623,7 @@ async def execute_monitored_gpqa(run_id: str):
         identity = frozen["monitor_identity"]
         budget = {
             "max_model_requests": frozen.get("max_model_requests"),
-            "max_output_tokens": 64,
+            "max_output_tokens": frozen.get("max_output_tokens", 64),
         }
         sample_count = len(frozen["samples"])
         parameters = frozen["parameters"]
@@ -644,7 +645,7 @@ async def execute_monitored_gpqa(run_id: str):
                 "model": frozen["remote_model"],
                 "url": frozen["base_url"],
                 "max_out_len": parameters["output"],
-                "retry": 0,
+                "retry": 1,
                 "batch_size": 1,
                 "datasets": ["gpqa_gen_0_shot_cot_chat_prompt"],
                 "dataset_test_range": f"[0:{sample_count}]",
@@ -670,6 +671,8 @@ async def execute_monitored_gpqa(run_id: str):
             {"config": config, "pins": gateway.env["pins"], "api_key": key, "budget": budget},
         )
         key = ""
+        if result["state"] == "running":
+            await transition(sessions, identifier, "running", "running")
         probe = (
             SSHMonitorClient(gateway.control.connection, identity)
             if result["state"] == "running"

@@ -8,7 +8,7 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
   return (await apiGetPage<T>(path, signal)).data;
 }
 
-export async function apiGetPage<T>(path: string, signal?: AbortSignal): Promise<{ data: T; next_offset: number | null }> {
+export async function apiGetPage<T>(path: string, signal?: AbortSignal): Promise<{ data: T; next_offset: number | null; total?: number | null }> {
   const response = await fetch(`/api/autoeval/v1${path}`, {
     signal,
     headers: { Accept: "application/json" },
@@ -17,7 +17,7 @@ export async function apiGetPage<T>(path: string, signal?: AbortSignal): Promise
   if (!response.ok) {
     throw new ApiError(response.status, body.error?.code || "HTTP_ERROR", body.error?.message || "请求失败");
   }
-  return { data: body.data as T, next_offset: body.next_offset ?? null };
+  return { data: body.data as T, next_offset: body.next_offset ?? null, total: body.total ?? null };
 }
 
 export async function apiPost<T>(path: string, payload?: unknown, key?: string): Promise<T> {

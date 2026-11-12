@@ -10,6 +10,7 @@ from autoeval.config import get_settings
 from autoeval.evaluation_activity import execute_gpqa_exploration
 from autoeval.fixture_pipeline import execute_unified_fixture
 from autoeval.monitored_execution import execute_monitored_gpqa
+from autoeval.orchestration import execute_planned_evaluation
 from autoeval.run_activities import execute_docker_diagnostic
 from autoeval.unified_activity import collect_unified_output
 from autoeval.workflows import (
@@ -17,6 +18,7 @@ from autoeval.workflows import (
     DockerDiagnosticWorkflow,
     GpqaExplorationWorkflow,
     MonitoredGpqaWorkflow,
+    PlannedEvaluationWorkflow,
     ReportAnalysisWorkflow,
     RunWorkflow,
     UnifiedFixtureWorkflow,
@@ -40,6 +42,7 @@ async def serve(role: str):
         "workflow": {
             "task_queue": settings.gpqa_workflow_queue,
             "workflows": [
+                PlannedEvaluationWorkflow,
                 RunWorkflow,
                 AnalysisWorkflow,
                 MonitoredGpqaWorkflow,
@@ -64,6 +67,10 @@ async def serve(role: str):
                 collect_unified_output,
             ],
         },
+        "planning-execution": {
+            "task_queue": "demo.planning-execution.v1",
+            "activities": [execute_planned_evaluation],
+        },
         "gpqa": {
             "task_queue": settings.gpqa_activity_queue,
             "activities": [execute_gpqa_exploration],
@@ -85,6 +92,7 @@ def main():
             "gpqa",
             "fixture",
             "monitored",
+            "planning-execution",
         ],
     )
     asyncio.run(serve(parser.parse_args().role))

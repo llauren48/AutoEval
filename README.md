@@ -1,35 +1,37 @@
 # AutoEval Demo
 
-AISBench 运行监控接入包含 `0026_run_monitor`、受控快照/日志接口和任务详情实时区域。仅使用 `backend/tool-locks/aisbench-monitor.json` 固定的独立部署副本，经 `AE_AISBENCH_MONITOR_CONFIG` 指向受保护配置，并启动 `uv run python -m autoeval.worker monitored`（compose 的 `workers` profile 亦包含该角色）。监控只绑定容器内 `127.0.0.1`，不发布宿主端口；单任务最多 5 次模型调用、每条最多 64 输出 tokens，工具与平台均不自动重试生成。Harbor 目前仅完成字段契约，真实测评尚未验收。历史录屏不代表当前修改后的验证结果。
-
 <p align="center">
   <img src="./frontend/public/brand/autoeval-logo.svg" alt="AutoEval 智能测评平台" width="300" />
 </p>
 
-AutoEval 是单团队、单工作空间的测评平台。当前实现以 GPQA Lite 探索测评为主线：模型服务 → 配置版本与确定性清单 → Docker/客户 SSH 执行 → case 历史 → 报告、分析与内部榜单。极光是独立资源提供方，不约束本平台技术栈。
-
-前端采用 React、TypeScript、Vite；后端采用 FastAPI、Temporal、PostgreSQL 和 S3 兼容对象存储。当前为受控开发环境，正式 Release 和生产验收尚未完成。
+AutoEval 是单团队、单工作空间的模型测评平台，采用 React、TypeScript、Vite、FastAPI、Temporal、PostgreSQL 和 S3 兼容对象存储。极光仅为独立资源提供方，不约束平台技术栈。
 
 ## 当前开发状态
 
-人工产物归档闭环已通过真实前端、Outbox、Temporal、SSH/SFTP、开发S3、case与报告验证。入口为数据工作台的“环境诊断 → 平台归档流程验证”，不会调用模型。当前迁移至0025，需运行独立fixture Worker；[验证记录及未覆盖范围](./docs/platform-fixture-validation-2026-11-12.md)。真实远程测评执行仍未验收。
+更新日期：2026-11-12。当前为受控开发环境，正式身份接入、Release门禁及生产验收尚未完成。
 
-新版标准输入与统一输出已增加离线契约解析、证据归档、case 元数据和 token 覆盖展示，需迁移至 `0024_unified_outputs` 并重启 API/Result Worker。远程适配器工作流与真实环境联调仍未开放；详见[接入状态及验证边界](./docs/unified-output-integration.md)。
+- **真实GPQA Lite闭环**：网页提交 → Outbox/Temporal → SSH/容器内AISBench → SFTP与对象归档 → Case → 报告 → 评审入榜已验证。最新5样本任务准确率 **80%（4/5）**，恰好5次调用，证据及清理状态已核对；不代表198样本全量效果。
+- **输出预算**：远程AISBench监控路径显式支持每条最多 **2048输出tokens**；其他兼容探索入口仍限64。每次最多5个样本、串行、无预热、不自动重测；旧快照继续按原冻结预算执行。
+- **执行进度**：提交与排队、环境准备、测评执行、结果归档、任务完成五阶段；等待时显示动态等待条与每秒更新的任务耗时，终态固定总耗时。样本计数未知时不虚构百分比。
+- **Case与报告**：保留每次尝试、工具时间与Token；新CLI路径从经校验的原生预测文件关联模型输入/响应，保留原证据哈希。执行成功、评分和证据完整性分别展示；两份更早的缺失证据报告仍仅保留历史索引。
+- **已评审榜单**：同模型ID、同配置及可比条件默认取最优，同分取最近；可切换全部成绩。不同样本、工具版本与参数分开。已按用户要求撤下两组旧64-token成绩，当前该模型GPQA榜单保留80%记录；原报告与审计不删除。官方公开成绩保留来源，不代表平台复现。
+- **标准仓与适配器**：标准输入版本化、来源与锁定参数、配置编译、统一输出及证据归档已接入；只有已验证的GPQA路径开放真实执行，MMMU-Pro、DeepSWE和Harbor真实执行分别验收。
+- **规划与通用编排**：固定Planner版本，支持资源预检、显式吞吐探测、耗时规划、不可变执行计划与三数据集编排代码；真实三数据集闭环尚未验收。控制台通过“测评规划 / GPQA Lite快速验证”切换，探测和测评需分别确认预算。
 
-更新日期：2026-11-12。
+| 组件 | 启动与边界 |
+| --- | --- |
+| API / Dispatcher / Workflow与活动Worker | 仅启动API不会执行测评；按下面步骤及后台说明启动对应角色 |
+| 监控Worker | `uv run python -m autoeval.worker monitored`；固定AISBench `698ff2d`、Adaptor `955089a`及补丁摘要；仅容器内127.0.0.1监听 |
+| 规划Worker / 通用执行Worker | `uv run python -m autoeval.planning_worker` / `uv run python -m autoeval.worker planning-execution`；环境需固定Planner与工具版本 |
+| 数据库 / 对象存储 | 迁移当前至 `0027_task_planning`；证据使用持久化S3，Temporal与业务数据库隔离 |
+| 分析 / 性能 / 极光 | 分析需独立目标和预算；性能成绩及极光真实接入未验收，不能以Token或总耗时替代性能成绩 |
 
-新增[标准仓输入接入](./docs/standard-inputs.md)：开发环境“数据工作台 → 标准仓输入”支持固定提交同步、离线包导入、原文与差异预览、模型映射及适配器配置编译。迁移至 `0023_standard_inputs` 后重启 API。当前仅对接输入，未接入适配器输出及测评执行；同步不自动批准配置、基线或榜单。
+接入、验证与恢复记录：
 
-| 模块 | 已实现与验证 | 主要剩余边界 |
-| --- | --- | --- |
-| 模型与配置 | 模型/端点登记、默认配置、版本保存、Profile 与 Full/Lite 清单绑定、分页 | 正式批准输入与其他工具流程 |
-| 资源与执行 | 本机 Docker、SSH/SFTP、批准指纹、资源工具版本固定、Temporal/Outbox、取消及查证恢复 | 客户生产环境验收；极光仅保留适配契约 |
-| 历史与报告 | 每次 case 尝试、只读快照、原始证据校验、完整/部分/失败摘要、基准比较 | 两份历史真实报告原文已丢失且无法恢复，索引保留并隔离 |
-| 分析与榜单 | 独立分析与重试；报告提名评审、外部及官方成绩录入、按来源与条件分组、历史审计 | 真实分析需独立目标、资源及预算；正式发布门禁未实现 |
-| 工具适配 | GPQA Lite 探索闭环；MMMU-Pro 原生加载/评分及工具层桥接已有实现 | MMMU-Pro 平台闭环、AutomationBench；不以工具层测试替代端到端验收 |
-| 开发运维 | 持久化 MinIO、逐对象校验迁移、容器重启读回、受保护备份、SSH 重启恢复 | 生产身份、部署、存储耐久性与运维验收 |
-
-当前任务入口仅支持已校验的 GPQA 单数据集 Lite 探索路径，每次最多5个样本、每样本最多64输出 tokens；提交会调用真实模型，不会自动重测。自定义/Lite 不产生正式 Release 通过结论。性能测评未接入，不展示为真实性能结论。
+- [阶段进度与耗时最新录屏记录](./docs/stage-elapsed-recording-2026-11-12.md)、[2048-token复测](./docs/gpqa-output2048-validation-2026-11-12.md)
+- [Case原文关联及历史证据](./docs/monitor-case-evidence-fix-2026-11-12.md)、[榜单最优成绩规则](./docs/leaderboard-best-selection.md)
+- [标准仓输入](./docs/standard-inputs.md)、[统一输出接入](./docs/unified-output-integration.md)、[任务规划与编排](./docs/task-planning.md)
+- [无模型归档验证](./docs/platform-fixture-validation-2026-11-12.md)、[持久化存储与恢复](./docs/development-recovery.md)
 
 ## 配置与数据集目录更新
 
@@ -130,15 +132,15 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-默认 pytest 会跳过依赖外部环境的专项，不能代替启用联调开关的全量验证。详见[收口验证记录](./docs/validation-2026-11-11.md)、[开发计划](./docs/backend-development-plan.md)及[恢复指南](./docs/development-recovery.md)。
+本次（2026-11-12）在 `AE_INFRA_TEST=1` 下后端269项通过、83项跳过；监控浏览器回归8项、规划浏览器回归1项通过；Ruff、TypeScript和前端构建通过。跳过项不代表验收通过，也未通过测试新增真实模型调用。默认 pytest 会跳过依赖外部环境的专项，不能代替启用联调开关的验证。详见[收口验证记录](./docs/validation-2026-11-11.md)、[开发计划](./docs/backend-development-plan.md)及[恢复指南](./docs/development-recovery.md)。
 
 依赖、构建产物、凭据、.env、本地备份和分享包不提交 Git。密码、私钥和 API Key 仅由后台受保护配置管理，不进入前端存储、运行快照或普通日志。
 
 ## 当前页面预览
 
-以下截图于 2026-11-11 从当前本机开发环境重新采集，视口为 1920 × 1400，长页面使用整页截图。截图包含本机配置与测试记录，不代表生产验收；未创建测评、调用模型或修改榜单数据。
+以下截图于 2026-11-12 从当前本机开发环境重新采集，视口为 1920 × 1400，长页面使用整页截图。截图包含本机配置与测试记录，不代表生产验收；未创建测评、调用模型或修改榜单数据。
 
-任务和报告详情展示现存历史记录；原始证据缺失提示及空指标如实保留。榜单中的官方来源成绩来自已录入的外部快照，不代表 AutoEval 已复现；条件不同的成绩仅作参考。截图不是正确性验收证据。
+任务和报告详情展示本次真实GPQA Lite 80%报告、阶段进度与终态耗时；Case原文已关联原生归档。缺失或未采集指标不补零。榜单中的官方来源成绩来自已录入的外部快照，不代表 AutoEval 已复现；条件不同的成绩仅作参考。截图不是正确性验收证据。
 
 ### 首页
 
@@ -149,6 +151,10 @@ uv run pytest -q
 ### 控制台
 
 ![控制台](./docs/screenshots/01-console.png)
+
+### GPQA Lite快速验证
+
+![GPQA Lite快速验证](./docs/screenshots/12-console-lite.png)
 
 ### 测评配置
 
@@ -166,9 +172,13 @@ uv run pytest -q
 
 ![任务总览](./docs/screenshots/04-task-detail.png)
 
-### 数据集执行详情
+### 工具监控与归档
 
-![数据集执行详情](./docs/screenshots/10-task-dataset-detail.png)
+![工具监控与归档](./docs/screenshots/13-task-monitor.png)
+
+### Case执行证据
+
+![Case执行证据](./docs/screenshots/10-task-dataset-detail.png)
 
 ### 报告管理
 
@@ -197,3 +207,5 @@ uv run pytest -q
 ## 浏览器回归检查
 
 临时浏览器脚本已整理至 `backend/tests/browser_checks/`，复用 Playwright，默认不执行。设置 `AE_BROWSER_TEST=1` 运行模拟预检和图表检查；另设 `AE_BROWSER_LIVE_TEST=1` 检查本机任务、报告及工作台只读导航。浏览器可通过 `AE_CHROME_PATH` 配置，截图输出到已忽略的 `.screenshots/browser-checks/`。真实写请求与外部请求会被拦截。运行步骤及验收边界见 [浏览器测试说明](./backend/tests/browser_checks/README.md)。
+
+标准输入详情现支持自动补全候选配置、查看来源与差异，确认后保存不可变编译快照；缺少环境信息仍需补充，不自动批准或开放执行。见 [标准输入说明](docs/standard-inputs.md#自动补全启动配置)。

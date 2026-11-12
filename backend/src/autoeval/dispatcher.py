@@ -16,6 +16,7 @@ from autoeval.workflows import (
     DockerDiagnosticWorkflow,
     GpqaExplorationWorkflow,
     MonitoredGpqaWorkflow,
+    PlannedEvaluationWorkflow,
     ReportAnalysisWorkflow,
     RunWorkflow,
     UnifiedFixtureWorkflow,
@@ -46,6 +47,7 @@ async def deliver_once(sessions, client, *, run_id=None) -> bool:
             workflow_kind = row.payload.get("workflow_kind")
             workflow_entry = {
                 "monitored_gpqa_v1": MonitoredGpqaWorkflow.run,
+                "planned_evaluation": PlannedEvaluationWorkflow.run,
                 "docker_diagnostic": DockerDiagnosticWorkflow.run,
                 "gpqa_exploration": GpqaExplorationWorkflow.run,
                 "report_analysis": ReportAnalysisWorkflow.run,

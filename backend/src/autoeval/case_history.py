@@ -16,6 +16,7 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
+    func,
     select,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -162,23 +163,33 @@ async def history(
     request: Request,
     dataset_key: str | None = None,
     sample_id: str | None = None,
+    state: str | None = None,
     offset: int = 0,
     limit: int = 50,
 ):
     if offset < 0 or not 1 <= limit <= 200:
         raise HTTPException(422, "Invalid pagination")
+    if state is not None and state not in {"started", "succeeded", "failed"}:
+        raise HTTPException(422, "Invalid state")
     try:
         async with request.app.state.sessions() as session:
             if await session.get(EvaluationRun, run_id) is None:
                 raise HTTPException(404, "Run not found")
-            query = select(CaseExecutionRecord).where(CaseExecutionRecord.run_id == run_id)
+            filters = [CaseExecutionRecord.run_id == run_id]
             if dataset_key is not None:
-                query = query.where(CaseExecutionRecord.dataset_key == dataset_key)
+                filters.append(CaseExecutionRecord.dataset_key == dataset_key)
             if sample_id is not None:
-                query = query.where(CaseExecutionRecord.sample_id == sample_id)
+                filters.append(CaseExecutionRecord.sample_id == sample_id)
+            if state is not None:
+                filters.append(CaseExecutionRecord.state == state)
+            total = await session.scalar(
+                select(func.count()).select_from(CaseExecutionRecord).where(*filters)
+            )
             rows = (
                 await session.scalars(
-                    query.order_by(CaseExecutionRecord.created_at, CaseExecutionRecord.id)
+                    select(CaseExecutionRecord)
+                    .where(*filters)
+                    .order_by(CaseExecutionRecord.created_at, CaseExecutionRecord.id)
                     .offset(offset)
                     .limit(limit + 1)
                 )
@@ -201,6 +212,7 @@ async def history(
                     for r in rows[:limit]
                 ],
                 "next_offset": offset + limit if len(rows) > limit else None,
+                "total": total or 0,
                 "request_id": request.state.request_id,
             }
     except SQLAlchemyError as exc:
@@ -217,8 +229,11 @@ async def evidence(attempt_id: uuid.UUID, request: Request):
             if row.sha256 is None:
                 raise HTTPException(409, "Attempt has no confirmed outcome evidence")
             data = await asyncio.to_thread(read_manifest, request.app.state.settings, row)
+            from autoeval.native_case_evidence import enrich_case
+
+            data = await enrich_case(session, request.app.state.settings, row, data)
     except SQLAlchemyError as exc:
         raise HTTPException(503, "Case history database unavailable") from exc
-    except (BotoCoreError, ClientError, ValueError) as exc:
+    except (BotoCoreError, ClientError, ValueError, TypeError, KeyError) as exc:
         raise HTTPException(503, "Evidence missing or integrity check failed") from exc
     return {"data": data, "request_id": request.state.request_id}

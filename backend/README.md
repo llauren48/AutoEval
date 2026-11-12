@@ -1,16 +1,24 @@
 # AutoEval 后端开发与联调
 
+最新验证（2026-11-12）：`AE_INFRA_TEST=1` 后端269项通过、83项跳过；Ruff、TypeScript及构建通过。GPQA Lite监控路径已完成真实5样本验证，2048-token配置准确率80%；历史基线不替代当前能力及环境验收。
+
+[GPQA Lite 2048-token复测](../docs/gpqa-output2048-validation-2026-11-12.md)：远程AISBench路径支持显式2048输出预算，同一5样本清单实测80%（4/5），5次调用；旧任务仍按原冻结预算执行，其他兼容入口仍限64。
+
+[监控真实任务及 Case 原文展示修复](../docs/monitor-case-evidence-fix-2026-11-12.md)：已从归档原生预测文件恢复新 CLI 路径的模型输入/响应，保留原证据哈希和历史成绩；5样本真实任务、监控、报告、评审入榜及录屏标识见记录。
+
+新增[任务耗时与完整编排接入](../docs/task-planning.md)：固定 Planner、主动探测、耗时明细、不可变执行计划和三数据集调度；需迁移至 `0027_task_planning` 并启动新增 worker。已通过离线、人工输出基础设施与浏览器验证，真实三数据集执行尚待环境验收；下文 GPQA Lite 限制描述旧兼容路径。
+
 AISBench 运行监控先执行迁移 `0026_run_monitor`，再将 `AE_AISBENCH_MONITOR_CONFIG` 指向包含固定 SSH 指纹、容器身份和独立部署根目录的受保护 JSON（不提交该文件）。部署必须匹配 `tool-locks/aisbench-monitor.json` 与 `tool-patches/`：runtime 文件名为 `runtime-<当前 monitored_runtime.py 摘要前12位>.py`，位于部署根目录，预检会核对完整 SHA-256、两个 Git HEAD、容器运行状态、loopback 与未发布端口。手动启动 `uv run python -m autoeval.worker monitored`，或使用 compose `workers` profile 中的 `monitored-worker`。默认离线测试不覆盖容器；`AE_MONITOR_CONTAINER_TEST=1` 仅用于已准备好固定容器和独立夹具根目录的无模型专项，`AE_INFRA_TEST=1` 用于真实 PostgreSQL/S3。历史真实任务不自动重跑，Harbor 真实执行未验收。
 
 人工产物归档验证新增0025迁移及 `uv run python -m autoeval.worker fixture`，使用独立队列和后台受保护配置。[端到端记录](../docs/platform-fixture-validation-2026-11-12.md)包含任务、对象及报告标识；它不代表模型测评执行通过。
 
-新增迁移 `0024_unified_outputs`：统一输出解析、不可变归档、case 工具观测字段及 Result Worker 收集活动。新版输入默认固定适配器 `955089a`，将平台运行参数与工具参数分离。真实远程执行仍未接通；[完整说明](../docs/unified-output-integration.md)。
+新增迁移 `0024_unified_outputs`：统一输出解析、不可变归档、case 工具观测字段及 Result Worker 收集活动。新版输入默认固定适配器 `955089a`，将平台运行参数与工具参数分离。GPQA远程监控路径已完成真实5样本验收，其他基准的远程执行仍待验收；[完整说明](../docs/unified-output-integration.md)。
 
 单团队、单工作空间，无项目/租户层。已验证本机Docker的GPQA Lite探索闭环，尚未完成全部工具、客户生产资源及生产验收。极光仍是独立资源提供方；页面直接展示真实业务数据，未启用能力明确保留边界。
 
 标准仓输入模块新增迁移 `0023_standard_inputs` 与 `/api/autoeval/v1/standard-inputs` 接口，支持输入登记、差异预览与脱敏配置编译；不启动测评、不写入批准基线。运行 `uv run alembic upgrade head` 并重启 API，使用方式和验证边界见[标准输入接入说明](../docs/standard-inputs.md)。
 
-## 当前收口基线（2026-11-11）
+## 历史收口基线（2026-11-11）
 
 - 全量228项通过、无跳过；Ruff、TypeScript及前端构建通过。默认pytest跳过联调专项，不能替代该结果。
 - 主机S3端点已切换到http://127.0.0.1:9002，固定摘要的GHCR社区MinIO镜像配独立持久卷；84个现存对象逐个校验并通过容器重启读回。原9000端点仅作协议模拟/迁移回退。
@@ -23,7 +31,7 @@ AISBench 运行监控先执行迁移 `0026_run_monitor`，再将 `AE_AISBENCH_MO
 - FastAPI应用工厂、lifespan资源回收、请求ID、统一异常和OpenAPI。
 - `/health/live`存活检查、`/health/ready`真实检查PostgreSQL/Temporal/S3 bucket；依赖不可用返回503。
 - `/api/autoeval/v1/system/capabilities`分别报告GPQA探索、分析配置与尚未启用的正式Release/极光。
-- 版本化模型、端点、配置、数据清单、Profile、运行快照、case证据、报告及审计，迁移当前至0023（含标准仓输入与榜单评审数据表）。
+- 版本化模型、端点、配置、数据清单、Profile、运行快照、case证据、报告及审计，迁移当前至0027（含标准仓输入、榜单评审、监控与任务规划数据表）。
 - Temporal工作流、专用I/O/GPQA/分析Worker及Outbox；未知调用不盲目重发，未实现活动明确失败。
 - 真实报告、条件匹配的批准JSON基准、内部榜单、独立分析及引用证据校验；分析需显式配置独立目标/资源。
 - 对账器恢复诊断和已归档GPQA attempt；状态未确认保留占用，清理按所有权幂等执行并记录审计。

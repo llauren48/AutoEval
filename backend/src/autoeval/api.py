@@ -23,6 +23,7 @@ from autoeval.evaluations import router as evaluations_router
 from autoeval.fixture_pipeline import router as fixture_pipeline_router
 from autoeval.leaderboards import router as leaderboard_router
 from autoeval.monitored_execution import router as monitored_router
+from autoeval.planning import router as planning_router
 from autoeval.profiles import router as profiles_router
 from autoeval.registry import router as registry_router
 from autoeval.reports import router as reports_router
@@ -52,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(fixture_pipeline_router)
     app.include_router(task_monitor_router)
     app.include_router(monitored_router)
+    app.include_router(planning_router)
     app.include_router(configuration_router)
     app.include_router(case_history_router)
     app.include_router(datasets_router)
@@ -160,6 +162,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "foundation": True,
                 "evaluation_enabled": False,
                 "gpqa_exploration_enabled": True,
+                "planning_enabled": True,
+                "planning_datasets": ["GPQA", "MMMU-Pro", "DeepSWE"],
+                "planned_execution_requires_resource_preflight": True,
                 "analysis_enabled": analysis_is_configured(settings),
                 "aurora_enabled": False,
                 "customer_ssh_enabled": True,

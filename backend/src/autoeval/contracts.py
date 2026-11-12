@@ -25,6 +25,7 @@ class JobObservation(Contract):
     state: Literal[
         "queued", "running", "succeeded", "failed", "cancelled", "unknown", "cleaned"
     ]
+    reason: str | None = None
 
 
 class ResourceProvider(Protocol):

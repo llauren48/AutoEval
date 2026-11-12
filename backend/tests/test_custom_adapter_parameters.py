@@ -5,7 +5,7 @@ from autoeval.configuration import Parameters
 
 
 def values():
-    return dict(output=32, concurrency=1, temperature=0, top_p=1, scope="Lite")
+    return {"output": 32, "concurrency": 1, "temperature": 0, "top_p": 1, "scope": "Lite"}
 
 
 def test_nested_custom_parameters_roundtrip_and_legacy_shape():
