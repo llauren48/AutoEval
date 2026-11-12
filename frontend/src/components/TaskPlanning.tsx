@@ -151,19 +151,19 @@ export function TaskPlanning() {
     <p className="muted">执行配置来自标准输入编译；样本清单须绑定已登记的工具与评分规则。</p>
     {incomplete && <p role="alert">请为每个已选执行配置选择样本范围。</p>}
     <h2>3. 执行策略</h2>
-    <label>数据集同时运行数<input aria-label="数据集同时运行数" type="number" min={1} max={3} value={parallel} onChange={e => setParallel(Number(e.target.value))} /></label>
-    <label><input type="checkbox" checked={recommend} onChange={e => setRecommend(e.target.checked)} />搜索更优顺序和并发（取消后按当前配置估算）</label>
-    <details><summary>吞吐曲线与主动探测</summary><div className="stack">
+    <div className="planning-strategy"><label>数据集同时运行数<input aria-label="数据集同时运行数" type="number" min={1} max={3} value={parallel} onChange={e => setParallel(Number(e.target.value))} /></label>
+    <label><input type="checkbox" checked={recommend} onChange={e => setRecommend(e.target.checked)} />搜索更优顺序和并发（取消后按当前配置估算）</label></div>
+    <details className="planning-throughput"><summary>吞吐曲线与主动探测<span>高级设置 · 可使用已有曲线或发起真实探测</span></summary><div className="probe-content"><h3>主动探测</h3><div className="probe-fields">
       <label>并发档位<input value={levels} onChange={e => { setLevels(e.target.value); setProbeConfirmed(false); }} /></label>
       <label>输入 token<input type="number" min={1} max={4096} value={promptTokens} onChange={e => { setPromptTokens(Number(e.target.value)); setProbeConfirmed(false); }} /></label>
       <label>最大输出 token<input type="number" min={1} max={4096} value={maxTokens} onChange={e => { setMaxTokens(Number(e.target.value)); setProbeConfirmed(false); }} /></label>
-      <p>包含非流式回退在内最多 {validLevels ? requestBudget : "—"} 次请求，最多 {validLevels ? requestBudget * maxTokens : "—"} 个输出 token；可能产生模型调用费用。</p>
-      <label><input type="checkbox" checked={probeConfirmed} onChange={e => setProbeConfirmed(e.target.checked)} />确认探测预算</label>
-      <button disabled={busy || !target || !resource || !probeConfirmed || !validLevels || probe?.state === "pending" || probe?.state === "running"} onClick={() => void action(async () => { const body = { target_id: target, resource_id: resource, resource_kind: resourceKind, concurrency: probeLevels, prompt_tokens: promptTokens, max_tokens: maxTokens }; const serialized = JSON.stringify(body); if (probeIntent.current?.body !== serialized || (probe && ["completed", "failed", "cancelled"].includes(probe.state))) probeIntent.current = { body: serialized, key: crypto.randomUUID() }; setProbe(await apiPost<Job>("/planning/probes", body, probeIntent.current.key)); })}>启动真实吞吐探测</button>
+      </div><p className="probe-budget">包含非流式回退在内最多 {validLevels ? requestBudget : "—"} 次请求，最多 {validLevels ? requestBudget * maxTokens : "—"} 个输出 token；可能产生模型调用费用。</p>
+      <div className="probe-actions"><label><input type="checkbox" checked={probeConfirmed} onChange={e => setProbeConfirmed(e.target.checked)} />确认探测预算</label>
+      <button disabled={busy || !target || !resource || !probeConfirmed || !validLevels || probe?.state === "pending" || probe?.state === "running"} onClick={() => void action(async () => { const body = { target_id: target, resource_id: resource, resource_kind: resourceKind, concurrency: probeLevels, prompt_tokens: promptTokens, max_tokens: maxTokens }; const serialized = JSON.stringify(body); if (probeIntent.current?.body !== serialized || (probe && ["completed", "failed", "cancelled"].includes(probe.state))) probeIntent.current = { body: serialized, key: crypto.randomUUID() }; setProbe(await apiPost<Job>("/planning/probes", body, probeIntent.current.key)); })}>启动真实吞吐探测</button></div>
       {probe && <p role="status">探测：{probe.state} {probe.result?.reason}</p>}
       {probe && ["pending", "running"].includes(probe.state) && <button onClick={() => void action(async () => { await apiPost(`/planning/probes/${probe.id}/cancel`, {}); })}>取消探测</button>}
-      <label>导入曲线 JSON<textarea value={curveText} onChange={e => setCurveText(e.target.value)} /></label>
-      <button disabled={busy || !target || !resource || !curveText} onClick={() => void action(async () => { const saved = await apiPost<{ id: string }>("/planning/throughput-profiles", { target_id: target, resource_id: resource, resource_kind: resourceKind, curve: JSON.parse(curveText) }); await refresh(); setCurve(saved.id); })}>导入吞吐曲线</button>
+      <details className="probe-import"><summary>导入已有吞吐曲线</summary><div className="probe-import-content"><label>曲线 JSON<textarea aria-label="曲线 JSON" rows={5} placeholder="在此粘贴吞吐曲线 JSON" spellCheck={false} value={curveText} onChange={e => setCurveText(e.target.value)} /></label>
+      <button disabled={busy || !target || !resource || !curveText} onClick={() => void action(async () => { const saved = await apiPost<{ id: string }>("/planning/throughput-profiles", { target_id: target, resource_id: resource, resource_kind: resourceKind, curve: JSON.parse(curveText) }); await refresh(); setCurve(saved.id); })}>导入吞吐曲线</button></div></details>
     </div></details>
     <label>吞吐来源<select aria-label="吞吐来源" value={curve} onChange={e => setCurve(e.target.value)}><option value="">请选择或探测</option>{options.curves.filter(c => c.target_id === target && c.resource_id === resource && c.resource_kind === resourceKind).map(c => <option key={c.id} value={c.id}>{new Date(c.measured_at).toLocaleString()} / {c.id.slice(0, 8)}</option>)}</select></label>
     </section><aside className="card stack planning-summary" aria-label="任务摘要">
@@ -206,5 +206,16 @@ export function PlannedRunView({ runId }: { runId: string }) {
 
 export function PlannedRuns() {
   const rows = useOptions<{ id: string; state: string; created_at: string }>("/planning/runs");
-  return <section className="card stack"><h2>编排测评任务</h2>{rows.error && <p role="alert">{rows.error}</p>}{rows.loading ? <p>加载中…</p> : !rows.rows.length ? <p>暂无编排任务</p> : rows.rows.map(r => <p key={r.id}><a href={`#planned-run/${r.id}`}>{r.id}</a> · {r.state} · {new Date(r.created_at).toLocaleString()}</p>)}<div className="inline"><button disabled={!rows.offset} onClick={() => rows.setOffset(Math.max(0, rows.offset - 50))}>上一页</button><button disabled={rows.next == null} onClick={() => rows.setOffset(rows.next!)}>下一页</button><button onClick={rows.retry}>刷新任务</button></div></section>;
+  const states: Record<string, string> = { pending: "等待中", queued: "排队中", running: "执行中", completed: "已完成", failed: "失败", cancelled: "已取消", cancelling: "取消中" };
+  return <section className="card planned-runs">
+    <div className="planned-runs-header"><div><h2>编排测评任务</h2><p>查看规划提交的测评记录与各数据集执行结果。</p></div><button disabled={rows.loading} onClick={rows.retry}>刷新任务</button></div>
+    {rows.error && <p role="alert">{rows.error}</p>}
+    {rows.loading ? <p role="status" className="planned-runs-empty">正在加载任务…</p> : !rows.rows.length ? <div className="planned-runs-empty">暂无编排任务，<a href="#console">前往控制台创建测评</a></div> : <div className="table-wrap"><table><thead><tr><th>任务 ID</th><th>执行状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody>{rows.rows.map(r => <tr key={r.id}>
+      <td><a className="planned-run-id" href={`#planned-run/${r.id}`}>{r.id}</a></td>
+      <td><span className={`planned-state state-${r.state}`}>{states[r.state] || r.state}</span></td>
+      <td><time dateTime={r.created_at}>{new Date(r.created_at).toLocaleString()}</time></td>
+      <td><a className="planned-run-detail" href={`#planned-run/${r.id}`}>查看详情</a></td>
+    </tr>)}</tbody></table></div>}
+    <div className="planned-runs-footer"><span>当前页 {rows.rows.length} 条 · 每页最多 50 条</span><div className="inline"><button disabled={rows.loading || !rows.offset} onClick={() => rows.setOffset(Math.max(0, rows.offset - 50))}>上一页</button><button disabled={rows.loading || rows.next == null} onClick={() => rows.setOffset(rows.next!)}>下一页</button></div></div>
+  </section>;
 }

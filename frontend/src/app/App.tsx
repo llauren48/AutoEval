@@ -74,6 +74,7 @@ function Notice({ children }: { children: ReactNode }) {
 export function App() {
   const [profiles, setProfiles] = useProfiles();
   const [page, setPage] = useState(location.hash.slice(1) || "console");
+  const [taskKind, setTaskKind] = useState("evaluation");
   const [consoleMode, setConsoleMode] = useState("planning");
   const [toast, setToast] = useState("");
   const evaluationPage = page === "tasks" || page.startsWith("run/") || page.startsWith("evaluate?");
@@ -125,9 +126,10 @@ export function App() {
             <a
               key={menu.id}
               href={`#${menu.id}`}
+              onClick={() => { if (menu.id === "tasks") setTaskKind("evaluation"); }}
               className={
                 page === menu.id ||
-                (evaluationPage && menu.id === "tasks") ||
+                ((evaluationPage || page.startsWith("planned-run/")) && menu.id === "tasks") ||
                 (page.startsWith("report/") && menu.id === "reports") ||
                 (page.startsWith("config/") && menu.id === "config")
                   ? "selected"
@@ -184,8 +186,14 @@ export function App() {
           <Configurations profiles={profiles} setProfiles={setProfiles} go={go} notify={setToast} />
         )}
         {page.startsWith("planned-run/") && <PlannedRunView runId={page.slice(12)} />}
-        {page === "tasks" && <PlannedRuns />}
-        {evaluationPage && (
+        {page === "tasks" && <div className="task-kind-bar">
+          <div className="console-mode-switch" role="group" aria-label="任务类型">
+            <button aria-pressed={taskKind === "planned"} onClick={() => setTaskKind("planned")}>编排测评任务</button>
+            <button aria-pressed={taskKind === "evaluation"} onClick={() => setTaskKind("evaluation")}>测评任务</button>
+          </div><p>按任务类型查看记录；各列表独立分页与统计。</p>
+        </div>}
+        {page === "tasks" && taskKind === "planned" && <PlannedRuns />}
+        {evaluationPage && (page !== "tasks" || taskKind === "evaluation") && (
           <div className="stack evaluation-tasks">
             <EvaluationRuns
               runId={page.startsWith("run/") ? page.slice(4) : undefined}
