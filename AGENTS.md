@@ -1,46 +1,84 @@
-# Repository Guidelines
+# AutoEval Demo 开发指南
 
-## Project Structure & Module Organization
+## 协作与项目定位
 
-- `frontend/src/app/` contains React screens; `frontend/src/components/` holds reusable UI and `frontend/src/services/` API clients. Static assets live in `frontend/public/`.
-- `backend/src/autoeval/` contains FastAPI endpoints, domain models, Temporal workflows, workers, and resource/tool adapters. Tests live in `backend/tests/`; Alembic migrations in `backend/migrations/`; approved tool manifests in `backend/tool-locks/`.
-- `deploy/` contains Compose definitions and the SSH simulator. `docs/` contains development plans, validation records, and recovery instructions.
+本指南适用于本仓库全部目录。默认使用中文沟通、编写说明和交付报告；代码标识符、命令和工具名称沿用项目约定。
 
-## Build, Test, and Development Commands
+修改前运行 `git status --short`，阅读相关实现，保留已有未提交修改，不回退或顺带格式化无关文件。搜索优先限定相关目录，避免扫描依赖、构建产物和归档文件。
 
-Run frontend commands from `frontend/`:
+平台采用单团队、单工作空间语义，前端为 React、TypeScript、Vite，后端为 FastAPI、Temporal、PostgreSQL 和 S3 兼容对象存储。保持现有架构，不隐式引入多租户。需求描述目标，代码描述实现，验证记录描述已验证范围；存在差异时明确说明。
 
-```sh
-npm ci                 # Install locked dependencies
-npm run dev            # Start Vite; proxy API requests to port 8000
-npm run typecheck      # Check TypeScript
-npm run build          # Type-check and build production assets
+## 目录与阅读入口
+
+| 目录或文档 | 用途 |
+| --- | --- |
+| `frontend/src/app/` | 前端页面入口 |
+| `frontend/src/components/` | 页面组件与复用界面 |
+| `frontend/src/services/` | 接口客户端与相关数据 |
+| `frontend/public/` | 静态资源 |
+| `backend/src/autoeval/` | 接口、领域模型、工作流、后台进程及资源和工具适配 |
+| `backend/tests/` | 单元、集成和浏览器检查 |
+| `backend/migrations/` | 数据库迁移 |
+| `backend/tool-locks/` | 工具版本约束与清单 |
+| `deploy/` | 容器编排与 SSH 模拟器 |
+| `docs/` | 设计、接入、验证及恢复记录 |
+
+先读 `README.md` 和相关模块。后台进程见 `backend/README.md`；持久化与恢复见 `docs/development-recovery.md`；标准输入和统一输出见 `docs/standard-inputs.md`、`docs/unified-output-integration.md`。版本、能力及验证结论以当前代码和对应记录为准，不照搬旧迁移版本或旧测试数量。
+
+## 环境与常用命令
+
+前端要求 Node.js 22 或更高版本，在 `frontend/` 执行：
+
+```powershell
+npm ci                 # 按锁文件安装依赖
+npm run dev            # 启动开发服务，接口代理至8000端口
+npm run typecheck      # 检查类型
+npm run build          # 检查类型并构建
 ```
 
-Run backend commands from `backend/` so local configuration resolves correctly:
+后端使用 Python 3.12，在 `backend/` 执行，确保本地配置正确解析：
 
-```sh
+```powershell
 uv sync --frozen --python 3.12
 uv run uvicorn autoeval.api:app --host 127.0.0.1 --port 8000
-uv run alembic upgrade head
 uv run ruff check .
 uv run pytest -q
 ```
 
-API startup alone does not execute tasks. Run the dispatcher, required worker roles, and reconciler as described in `README.md`. Follow `docs/development-recovery.md` for persistent storage setup.
+接口服务启动不代表任务可执行。按 README 启动任务分发进程、所需角色的工作进程与状态协调进程；新增归档流程也需核对对应工作进程。分析进程的启用须符合任务目标、资源与预算。
 
-## Coding Style & Naming Conventions
+已有 `.env` 不覆盖。数据库变更新增 Alembic 迁移，不改写已应用迁移；确认目标数据库与恢复条件后，在后端目录执行 `uv run alembic upgrade head`。业务证据使用持久化对象存储，Moto 仅用于协议测试；不通过清空数据库、删除证据卷或替换为临时存储解决联调问题。
 
-Use four-space indentation and `snake_case` for Python functions/modules. Ruff targets Python 3.12 with a 100-character line limit; format only touched files with `uv run ruff format <paths>`. Use two-space indentation, PascalCase React components, and camelCase TypeScript variables. Follow nearby code and retain the existing component library.
+## 编码与集成约定
 
-## Testing Guidelines
+- Python 使用四空格缩进和蛇形命名；Ruff 目标为 Python 3.12、行宽100。仅对修改文件执行 `uv run ruff format <文件路径>`。
+- TypeScript 使用两空格缩进，组件使用大驼峰命名，变量使用小驼峰命名。沿用现有 React、CSS 和 lucide-react，按附近代码组织组件，不随意引入界面框架。
+- 接口、前端类型与调用方同步调整；业务约束由后端校验，不能仅通过前端禁用按钮保证。维护与诊断接口继续限制在开发或测试环境。
+- Temporal 工作流保持确定性，外部输入输出放在活动或既有适配层。修改事务发件箱、取消和恢复行为时检查重复投递与不确定结果；重试保留每次尝试及失败历史，不静默重发模型请求。
+- 冻结任务输入、配置版本和工具身份，历史快照不随当前默认配置变化。
+- 后端通过固定 Git 提交引用规划器，见 `backend/pyproject.toml` 和 `backend/uv.lock`。修改相邻规划器目录不会自动更新平台环境；集成时核对依赖与锁文件。
+- 配置字段、统一输出、样本标识或词元统计口径变更时，核对生产方和消费方，保持必要的历史兼容。适配器负责工具配置与结果转换，规划器负责估算建议，平台负责状态、执行编排和归档。
 
-Use pytest, pytest-asyncio, and Playwright; name Python tests `test_*.py`. Add meaningful regression tests for changed behavior. Integration suites require explicit flags such as `AE_INFRA_TEST`, `AE_SSH_SIM_TEST`, and `AE_BROWSER_URL`; document prerequisites and skipped tests. No numeric coverage threshold is configured. Mocked model responses must remain distinguishable from real results and must never trigger paid generation unintentionally.
+## 测评与数据真实性
 
-## Commit & Pull Request Guidelines
+- 标准仓同步、配置编译、离线输出解析和真实远程执行分别验证。工具层测试或人工固定产物归档通过，不代表平台真实测评闭环验收通过。
+- 区分 `validity`（历史执行完整性）与 `evidence_status`（当前证据状态）。缺测、执行失败、评分失败、证据不可用和条件不可比分别表达。
+- 缺失证据不补零、不计算基准差值、不作为有效榜单成绩；保留工具原生评分规则，不擅自改判空输出或截断结果。
+- 外部成绩保留来源和条件，缺失评测时间保持空缺，不用抓取时间替代。不同条件的参考排序不声称严格可比，预测时长不作为实测性能，探索或精简测评成绩不代表正式发布批准。
+- 真实模型调用、吞吐探测、分析与远程执行按当前任务授权的目标、范围和预算执行，不从普通测试要求推断付费调用授权，不自动重测。
+- 密钥、私钥、受保护配置、备份和生成的分享包不提交。敏感信息不进入前端存储、运行快照或普通日志，保留 HTTPS 证书校验。
 
-Follow existing messages: `feat(frontend): ...` or `fix(m8): ...`. Keep commits cohesive. PRs should describe the problem, resulting behavior, validation commands/results, and remaining limitations; link relevant issues or design documents and include screenshots for visible UI changes. Report environment failures separately from code failures.
+## 按变更验证
 
-## Security & Architecture Boundaries
+- 前端修改运行类型检查和构建；可见交互按 `backend/tests/browser_checks/README.md` 验证相关路径，有条件时附截图。
+- 后端修改先运行相关 pytest 与 Ruff；涉及共享契约、执行状态或持久化时扩大回归。为行为变化补充有意义的回归测试，不为纯文档或样式调整编写重复实现的测试。
+- Python 测试文件命名为 `test_*.py`，沿用 pytest、pytest-asyncio 与 Playwright。当前没有数值覆盖率门槛。
+- 基础设施专项按需显式配置 `AE_INFRA_TEST`、`AE_SSH_SIM_TEST`、`AE_BROWSER_URL` 等条件，说明前置依赖及实际通过、失败和跳过项。默认测试跳过不算联调通过。
+- 分别记录模拟响应、人工固定产物、真实基础设施、远程测评和模型调用的验证范围；截图不能替代业务正确性验证，历史回归不能作为本次验证结果。
+- 纯文档修改检查路径、命令与差异即可，无需运行业务全量测试。
 
-Keep single-team, single-workspace semantics; do not introduce tenancy implicitly. Never commit credentials, `.env`, protected backups, or generated sharing bundles. Freeze execution inputs and tool identities; preserve failed attempts and historical snapshots. Never fabricate missing evidence, silently reissue uncertain model requests, or treat exploratory scores as Release approval.
+## 文档与交付
+
+启动方式、接口或能力边界变化时同步相关文档。交付说明问题、最终行为、实际验证结果及未覆盖范围，区分环境阻塞与代码失败。
+
+提交沿用仓库格式，如 `feat(frontend): 中文说明`、`fix(m8): 中文说明`，每次聚焦同一问题。合并请求说明问题、结果、验证和限制，并关联相关需求或设计。提交、推送与发布按用户要求执行。
