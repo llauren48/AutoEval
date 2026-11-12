@@ -21,3 +21,8 @@ __pycache__/
 /backend/test-results/
 /frontend/test-results/
 /frontend/playwright-report/
+
+# Local benchmark run output and trial analysis results; regenerate with
+# backend/src/autoeval/scan_result_analyze.py instead of committing artifacts.
+/result/
+analysis_out/
