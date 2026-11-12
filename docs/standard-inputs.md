@@ -1,5 +1,7 @@
 # 标准仓输入接入
 
+更新：新版默认输入契约已升级为适配器 `955089a`，Docker 参数移至 `runtime_config`，不再生成 `--no-template`；下文旧版本说明保留为历史输入契约参考。统一输出新增能力及尚未开放的远程执行边界见[新版接入说明](./unified-output-integration.md)。
+
 本模块只登记标准输入、建立模型映射并生成适配器启动配置，不执行测评。输出格式、结果收集、报告、基线审批及门禁均未接入。本机已增加迁移 `0023_standard_inputs`；其他环境先执行 `uv run alembic upgrade head`，再重启 API。
 
 ## 版本与职责

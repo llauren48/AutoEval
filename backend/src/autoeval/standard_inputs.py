@@ -16,6 +16,7 @@ from sqlalchemy import ForeignKey, String, UniqueConstraint, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from autoeval.adaptor_versions import CURRENT_ADAPTOR, separate_runtime
 from autoeval.data_workbench import development
 from autoeval.models import Base, Record
 from autoeval.registry import Asset, AssetVersion
@@ -261,6 +262,7 @@ class Sync(Strict):
 
 
 class CompileInput(Strict):
+    adaptor_revision: str = Field(default=CURRENT_ADAPTOR, pattern="^(955089ab32ef696c231d628f5ad0d9da28f430c4|1fb877ace4a087cb805e9a3d5878dcce6349bc35)$")
     model_id: uuid.UUID | None = None
     target_id: uuid.UUID | None = None
     template_version: str = Field(default="platform.v1", pattern=r"^[a-zA-Z0-9_.-]{1,128}$")
@@ -568,8 +570,10 @@ def compile_config(entry, body, target=None):
     for key, value in leaves(standard).items():
         if final.get(key) != value:
             blockers.append("standard_lock_conflict:" + key)
+    tool_config, runtime_config, cli_flags = separate_runtime(base, body.adaptor_revision)
     result = {
-        "config": base,
+        "config": tool_config,
+        "runtime_config": runtime_config,
         "template_version": body.template_version,
         "template_sha256": digest(body.template),
         "field_sources": origins,
@@ -579,8 +583,8 @@ def compile_config(entry, body, target=None):
         "input_ready": not blockers,
         "execution_enabled": False,
         "approval_status": "not_approved",
-        "adaptor_revision": ADAPTOR_REVISION,
-        "cli_flags": ["--no-template"],
+        "adaptor_revision": body.adaptor_revision,
+        "cli_flags": cli_flags,
         "credential_binding": {"target_id": str(target.id), "injection": "runtime-only"}
         if target
         else None,

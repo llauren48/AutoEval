@@ -24,7 +24,7 @@
         else if (p.includes('/test-configs'))
             data = [config];
         else if (p.includes('/resources'))
-            data = [{ id: 'resource-1', binding_key: '验证资源' }];
+            data = [{ id: 'resource-1', binding_key: '验证资源' }, { id: 'resource-2', binding_key: '备用验证资源' }];
         return new Response(JSON.stringify({ data, next_offset: null }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
 })();

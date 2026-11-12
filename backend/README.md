@@ -1,5 +1,9 @@
 # AutoEval 后端开发与联调
 
+人工产物归档验证新增0025迁移及 `uv run python -m autoeval.worker fixture`，使用独立队列和后台受保护配置。[端到端记录](../docs/platform-fixture-validation-2026-11-12.md)包含任务、对象及报告标识；它不代表模型测评执行通过。
+
+新增迁移 `0024_unified_outputs`：统一输出解析、不可变归档、case 工具观测字段及 Result Worker 收集活动。新版输入默认固定适配器 `955089a`，将平台运行参数与工具参数分离。真实远程执行仍未接通；[完整说明](../docs/unified-output-integration.md)。
+
 单团队、单工作空间，无项目/租户层。已验证本机Docker的GPQA Lite探索闭环，尚未完成全部工具、客户生产资源及生产验收。极光仍是独立资源提供方；页面直接展示真实业务数据，未启用能力明确保留边界。
 
 标准仓输入模块新增迁移 `0023_standard_inputs` 与 `/api/autoeval/v1/standard-inputs` 接口，支持输入登记、差异预览与脱敏配置编译；不启动测评、不写入批准基线。运行 `uv run alembic upgrade head` 并重启 API，使用方式和验证边界见[标准输入接入说明](../docs/standard-inputs.md)。

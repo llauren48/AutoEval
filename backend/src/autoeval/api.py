@@ -20,6 +20,7 @@ from autoeval.data_workbench import router as data_workbench_router
 from autoeval.datasets import router as datasets_router
 from autoeval.db import create_database
 from autoeval.evaluations import router as evaluations_router
+from autoeval.fixture_pipeline import router as fixture_pipeline_router
 from autoeval.leaderboards import router as leaderboard_router
 from autoeval.profiles import router as profiles_router
 from autoeval.registry import router as registry_router
@@ -29,6 +30,7 @@ from autoeval.runs import router as runs_router
 from autoeval.ssh_resources import router as ssh_resources_router
 from autoeval.standard_inputs import router as standard_inputs_router
 from autoeval.targets import router as targets_router
+from autoeval.unified_outputs import router as unified_outputs_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -44,6 +46,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="AutoEval Backend", version="0.1.0", lifespan=lifespan)
     app.include_router(data_workbench_router)
     app.include_router(standard_inputs_router)
+    app.include_router(unified_outputs_router)
+    app.include_router(fixture_pipeline_router)
     app.include_router(configuration_router)
     app.include_router(case_history_router)
     app.include_router(datasets_router)

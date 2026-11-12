@@ -2,22 +2,24 @@ import asyncio
 
 from alembic import context
 
-import autoeval.analysis
-import autoeval.audit
-import autoeval.benchmarks
-import autoeval.case_history
-import autoeval.cleanup
-import autoeval.configuration
-import autoeval.data_workbench
-import autoeval.datasets
-import autoeval.evaluations
-import autoeval.profiles
-import autoeval.registry
-import autoeval.resources
-import autoeval.runs
-import autoeval.ssh_resources
-import autoeval.standard_inputs
-import autoeval.targets  # noqa: F401 -- register endpoint/probe tables
+import autoeval.analysis  # noqa: F401 -- register migration metadata
+import autoeval.audit  # noqa: F401 -- register migration metadata
+import autoeval.benchmarks  # noqa: F401 -- register migration metadata
+import autoeval.case_history  # noqa: F401 -- register migration metadata
+import autoeval.cleanup  # noqa: F401 -- register migration metadata
+import autoeval.configuration  # noqa: F401 -- register migration metadata
+import autoeval.data_workbench  # noqa: F401 -- register migration metadata
+import autoeval.datasets  # noqa: F401 -- register migration metadata
+import autoeval.evaluations  # noqa: F401 -- register migration metadata
+import autoeval.profiles  # noqa: F401 -- register migration metadata
+import autoeval.registry  # noqa: F401 -- register migration metadata
+import autoeval.resources  # noqa: F401 -- register migration metadata
+import autoeval.runs  # noqa: F401 -- register migration metadata
+import autoeval.ssh_resources  # noqa: F401 -- register migration metadata
+import autoeval.standard_inputs  # noqa: F401 -- register migration metadata
+import autoeval.targets   # noqa: F401 -- register migration metadata
+import autoeval.unified_outputs  # noqa: F401 -- register migration metadata
+import autoeval.unified_artifacts  # noqa: F401 -- register migration metadata
 from autoeval.config import get_settings
 from autoeval.db import create_database
 from autoeval.models import Base

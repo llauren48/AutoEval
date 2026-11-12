@@ -17,18 +17,20 @@ from autoeval.workflows import (
     GpqaExplorationWorkflow,
     ReportAnalysisWorkflow,
     RunWorkflow,
+    UnifiedFixtureWorkflow,
 )
 
 log = logging.getLogger(__name__)
 
 
-async def deliver_once(sessions, client) -> bool:
+async def deliver_once(sessions, client, *, run_id=None) -> bool:
     # Keep a bounded single-row transaction during dispatch: rollback releases
     # the row after a crash, while a stable Workflow ID handles re-delivery.
     async with sessions() as session, session.begin():
         row = await session.scalar(
             select(Outbox)
             .where(Outbox.state == "pending", Outbox.next_retry_at <= datetime.now(UTC))
+            .where(Outbox.run_id == run_id if run_id is not None else True)
             .order_by(Outbox.created_at, Outbox.id)
             .with_for_update(skip_locked=True)
             .limit(1)
@@ -45,6 +47,7 @@ async def deliver_once(sessions, client) -> bool:
                 "docker_diagnostic": DockerDiagnosticWorkflow.run,
                 "gpqa_exploration": GpqaExplorationWorkflow.run,
                 "report_analysis": ReportAnalysisWorkflow.run,
+                "unified_fixture_v1": UnifiedFixtureWorkflow.run,
             }.get(workflow_kind, RunWorkflow.run)
             if row.kind == "ANALYZE_REPORT":
                 analysis_id = row.payload["analysis_id"]

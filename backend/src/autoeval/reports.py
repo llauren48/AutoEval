@@ -5,7 +5,7 @@ import uuid
 
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from autoeval.analysis import ReportAnalysis, analysis_status_for
@@ -127,8 +127,10 @@ async def detail(report_id: uuid.UUID, request: Request):
                     .join(RunSnapshot, RunSnapshot.run_id == EvaluationRun.id)
                     .where(
                         EvaluationReport.id == report_id,
-                        EvaluationRun.trigger_scope == "local-operator:evaluation",
-                        EvaluationReport.execution_origin == "real",
+                        or_(
+                            and_(EvaluationRun.trigger_scope == "local-operator:evaluation", EvaluationReport.execution_origin == "real"),
+                            and_(EvaluationRun.trigger_scope == "local-operator:unified-fixture", EvaluationReport.execution_origin == "simulation", request.app.state.settings.environment in {"development", "test"}),
+                        ),
                     )
                 )
             ).one_or_none()

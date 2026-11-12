@@ -9,8 +9,12 @@ def test_preflight_blocks_requires_confirmation_and_invalidates(browser_page):
     page, url, _ = browser_page
     page.add_init_script(path=Path(__file__).with_name("preflight.js"))
     page.goto(url + "/#console")
-    page.get_by_label("控制台模型服务", exact=True).select_option("target-1")
-    page.get_by_label("控制台执行资源", exact=True).select_option("resource-1")
+    def choose(label, value):
+        select = page.get_by_label(label, exact=True)
+        select.locator("xpath=ancestor::details[1]").locator("summary").click()
+        select.select_option(value)
+    choose("控制台模型服务", "target-1")
+    choose("控制台执行资源", "resource-1")
     check = page.get_by_role("button", name="检查服务、资源与配置", exact=True)
     submit = page.get_by_role("button", name="发起测评", exact=True)
     check.click()
@@ -22,7 +26,7 @@ def test_preflight_blocks_requires_confirmation_and_invalidates(browser_page):
     expect(submit).to_be_disabled()
     page.locator(".submission-review input[type=checkbox]").check()
     expect(submit).to_be_enabled()
-    page.get_by_label("控制台执行资源", exact=True).select_option("")
+    choose("控制台执行资源", "resource-2")
     expect(submit).to_be_disabled()
     assert page.evaluate("window.generated") == 0
 

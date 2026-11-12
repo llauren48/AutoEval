@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { apiGet, apiGetPage } from "../services/api";
+import { UnifiedOutputSummary } from "./UnifiedOutputSummary";
 
 type Attempt = {
   id: string;
@@ -13,9 +14,10 @@ type Attempt = {
   evidence_sha256: string | null;
   created_at: string;
   finished_at: string | null;
+  tool_metadata?: { tool_started_at: string | null; tool_finished_at: string | null; duration_sec: number | null; input_tokens: number | null; output_tokens: number | null; diagnostics: string[]; status: string } | null;
 };
 
-const time = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN") : "—";
+const time = (value: string | null) => value && !Number.isNaN(Date.parse(value)) ? new Date(value).toLocaleString("zh-CN") : "—";
 
 export function CaseHistory({ initialRun = "" }: { initialRun?: string }) {
   const evidenceDialog = useRef<HTMLDialogElement>(null);
@@ -67,6 +69,7 @@ export function CaseHistory({ initialRun = "" }: { initialRun?: string }) {
   return (
     <details className="diagnostic-tasks case-history" open={Boolean(initialRun)}>
       <summary>Case 执行历史</summary>
+      {initialRun && <UnifiedOutputSummary runId={initialRun} />}
       <p>查询每次执行尝试及已校验的原始证据。重试成功仍保留此前失败；执行状态与评分正确性分开。</p>
       <div className="filters">
         {!initialRun && <label>运行ID <input aria-label="回溯运行ID" value={run} onChange={(event) => setRun(event.target.value)} /></label>}
@@ -87,7 +90,7 @@ export function CaseHistory({ initialRun = "" }: { initialRun?: string }) {
                 <td><span className={`case-status ${row.state === "succeeded" ? "passed" : row.state === "failed" ? "error" : "running"}`}>{({ succeeded: "执行成功", failed: "执行失败", started: "执行中 / 待查证" } as Record<string,string>)[row.state] || "待确认"}</span></td>
                 <td>{row.error_code || "无执行错误"}{row.error_code && <small>请检查服务连通性、资源环境及本次证据；结果未知时勿重复提交。</small>}</td>
                 <td>{time(row.created_at)}</td>
-                <td>{time(row.finished_at)}</td>
+                <td>{time(row.finished_at)}{row.tool_metadata && <details><summary>工具时间与 Token</summary><p>工具状态：{row.tool_metadata.status}</p><p>开始：{time(row.tool_metadata.tool_started_at)}<br />结束：{time(row.tool_metadata.tool_finished_at)}<br />耗时：{row.tool_metadata.duration_sec ?? "—"} 秒</p><p>输入：{row.tool_metadata.input_tokens ?? "—"} / 输出：{row.tool_metadata.output_tokens ?? "—"} Token</p>{row.tool_metadata.diagnostics.length > 0 && <p>诊断：{row.tool_metadata.diagnostics.join("、")}</p>}<small>工具报告值；与平台观测时间独立。缺失值未补零。</small></details>}</td>
                 <td>
                   <button className="link" type="button" disabled={!row.evidence_available} onClick={() => { setSelected(row.id); setEvidence(null); }}>查看第{row.attempt_no}次证据</button>
                   <small>{row.evidence_sha256 ? "已归档，打开时核验完整性" : "尚未归档"}</small>

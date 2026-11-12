@@ -10,6 +10,10 @@ AutoEval 是单团队、单工作空间的测评平台。当前实现以 GPQA Li
 
 ## 当前开发状态
 
+人工产物归档闭环已通过真实前端、Outbox、Temporal、SSH/SFTP、开发S3、case与报告验证。入口为数据工作台的“环境诊断 → 平台归档流程验证”，不会调用模型。当前迁移至0025，需运行独立fixture Worker；[验证记录及未覆盖范围](./docs/platform-fixture-validation-2026-11-12.md)。真实远程测评执行仍未验收。
+
+新版标准输入与统一输出已增加离线契约解析、证据归档、case 元数据和 token 覆盖展示，需迁移至 `0024_unified_outputs` 并重启 API/Result Worker。远程适配器工作流与真实环境联调仍未开放；详见[接入状态及验证边界](./docs/unified-output-integration.md)。
+
 更新日期：2026-11-12。
 
 新增[标准仓输入接入](./docs/standard-inputs.md)：开发环境“数据工作台 → 标准仓输入”支持固定提交同步、离线包导入、原文与差异预览、模型映射及适配器配置编译。迁移至 `0023_standard_inputs` 后重启 API。当前仅对接输入，未接入适配器输出及测评执行；同步不自动批准配置、基线或榜单。

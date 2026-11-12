@@ -69,10 +69,10 @@ def test_compile_full_inputs_without_activating_execution(index):
     assert result["input_ready"]
     assert not result["execution_enabled"]
     assert result["approval_status"] == "not_approved"
-    assert result["cli_flags"] == ["--no-template"]
+    assert result["cli_flags"] == []
     assert "api_key" not in result["config"]["params"]
-    assert result["config"]["params"]["execution"] == "docker"
-    assert result["adaptor_revision"] == ADAPTOR_REVISION
+    assert result["runtime_config"]["execution"] == "docker"
+    assert result["adaptor_revision"] == "955089ab32ef696c231d628f5ad0d9da28f430c4"
 
 
 @pytest.mark.parametrize("index", range(6))

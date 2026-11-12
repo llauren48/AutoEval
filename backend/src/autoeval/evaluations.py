@@ -321,7 +321,7 @@ async def detail(run_id: uuid.UUID, request: Request):
     try:
         async with request.app.state.sessions() as session:
             row = await session.get(EvaluationRun, run_id)
-            if row is None or row.trigger_scope != "local-operator:evaluation":
+            if row is None or (row.trigger_scope != "local-operator:evaluation" and not (row.trigger_scope == "local-operator:unified-fixture" and request.app.state.settings.environment in {"development", "test"})):
                 raise HTTPException(404, "Evaluation run not found")
             events = (
                 await session.scalars(
@@ -433,7 +433,7 @@ async def cancel(run_id: uuid.UUID, request: Request):
                 select(EvaluationRun)
                 .where(
                     EvaluationRun.id == run_id,
-                    EvaluationRun.trigger_scope == "local-operator:evaluation",
+                    EvaluationRun.trigger_scope.in_(["local-operator:evaluation", "local-operator:unified-fixture"] if request.app.state.settings.environment in {"development", "test"} else ["local-operator:evaluation"]),
                 )
                 .with_for_update()
             )

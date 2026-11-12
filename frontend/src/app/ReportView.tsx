@@ -1,6 +1,7 @@
 import { type DatasetChartResult, ReportCharts } from "../components/ReportCharts";
 import { CopyIdentifier } from "../components/CopyIdentifier";
 import { CaseHistory } from "../components/CaseHistory";
+import { UnifiedOutputSummary } from "../components/UnifiedOutputSummary";
 import { ManagementDrawer } from "../components/ManagementDrawer";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -227,6 +228,8 @@ export function ReportView({ id, go }: { id: string; go: (path: string) => void 
         </details></ManagementDrawer>
         <details className="report-analysis-summary"><summary>关键结论与自动分析</summary><p>{report.evidence_status !== "verified" ? "原始证据不可用，当前无法确认有效成绩或生成可信比较结论。" : "本次为所选 Lite 清单的探索结果，不代表全量成绩，不适用正式发布门禁。"}</p><AnalysisPanel reportId={report.id} status={report.analysis_status} onStatus={(state) => setReport((current) => current ? { ...current, analysis_status: state } : current)} /></details>
         <ReportCharts report={report} />
+        {report.execution_origin === "simulation" && <p className="notice">人工测试产物流程验证报告；不代表真实模型成绩，不参与榜单或正式发布门禁。</p>}
+        <UnifiedOutputSummary runId={report.run_id} />
         <h3>数据集结果</h3>
         <div className="table-wrap"><table><thead><tr><th>数据集</th><th>类型</th><th>覆盖</th><th>核心指标</th><th>指标值</th><th>基准差异</th><th>操作</th></tr></thead><tbody><tr><td>GPQA</td><td>科学问答</td><td>{summary.successful_samples}/{summary.expected_samples} · {validityLabels[report.validity]}</td><td>准确率</td><td>{accuracyText(summary.accuracy)}</td><td>{report.evidence_status !== "verified" ? "证据不可用" : baseline.status === "missing" ? "暂无基准" : baseline.status === "incomparable" ? "不可直接比较" : difference}</td><td><button className="link" onClick={() => setDatasetOpen(true)}>查看结果</button></td></tr></tbody></table></div>
       </section>}

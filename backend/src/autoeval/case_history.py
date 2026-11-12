@@ -18,6 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
     select,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,6 +38,7 @@ class CaseExecutionRecord(Record, Base):
     object_key: Mapped[str | None] = mapped_column(String(256))
     sha256: Mapped[str | None] = mapped_column(String(64))
     error_code: Mapped[str | None] = mapped_column(String(64))
+    tool_metadata: Mapped[dict | None] = mapped_column(JSONB)
     __table_args__ = (
         UniqueConstraint("run_id", "operation_key"),
         UniqueConstraint("run_id", "dataset_key", "sample_id", "attempt_no"),
@@ -194,6 +196,7 @@ async def history(
                         "evidence_available": r.sha256 is not None,
                         "created_at": r.created_at.isoformat(),
                         "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                        "tool_metadata": r.tool_metadata,
                     }
                     for r in rows[:limit]
                 ],

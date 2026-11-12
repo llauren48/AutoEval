@@ -18,6 +18,19 @@ class RunWorkflow:
 
 
 @workflow.defn
+class UnifiedFixtureWorkflow:
+    @workflow.run
+    async def run(self, run_id: str) -> dict:
+        return await workflow.execute_activity(
+            "execute_unified_fixture",
+            run_id,
+            task_queue="demo.fixture.workflow.v1",
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+
+@workflow.defn
 class AnalysisWorkflow:
     @workflow.run
     async def run(self, job_id: str) -> None:
