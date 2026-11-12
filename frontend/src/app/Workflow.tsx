@@ -595,8 +595,8 @@ export function EvaluationConsole({ profiles, setProfiles, notify }: {
                     <td>{d}</td>
                     <td>{d === "GPQA" ? config?.items.GPQA.scope || "需选择配置" : "当前路径未开放"}</td>
                     <td><div className="inline">
-                      <button className="link" disabled={d !== "GPQA" || !config} onClick={() => setView(d)}>查看参数</button>
-                      <button className="link" disabled={d !== "GPQA" || config?.kind !== "custom"} onClick={openEditor}>编辑参数</button>
+                      {d === "GPQA" && <><button className="link" disabled={!config} onClick={() => setView(d)}>查看参数</button>
+                      <button className="link" disabled={d !== "GPQA" || config?.kind !== "custom"} onClick={openEditor}>编辑参数</button></>}
                     </div></td>
                   </tr>
                 ))}
@@ -612,6 +612,11 @@ export function EvaluationConsole({ profiles, setProfiles, notify }: {
         <h3>{target ? `${target.model_key} / ${target.model_version}` : "未选择模型服务"}</h3>
         <span>模型标识：{target?.model_key || "未选择"}</span>
         <span>配置：{config ? `${config.display_name} · ${config.version_label}` : "未选择"}</span>
+        <dl className="planning-checklist" aria-label="提交前检查">
+          <div><dt>模型服务</dt><dd>{target ? "已选择" : "待选择"}</dd></div>
+          <div><dt>执行资源</dt><dd>{resource ? "已选择" : "待选择"}</dd></div>
+          <div><dt>数据集配置</dt><dd>{config ? "GPQA Lite · 已配置" : "待配置"}</dd></div>
+        </dl>
         <fieldset className="run-mode-options">
           <legend>运行方式</legend>
           <div className="run-mode-choices">

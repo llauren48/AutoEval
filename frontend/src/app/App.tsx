@@ -4,6 +4,7 @@ import { DatasetManifests } from "../components/DatasetManifests";
 import { ExecutionBindings } from "../components/ExecutionBindings";
 import { ManagementDrawer } from "../components/ManagementDrawer";
 import { StandardInputs } from "../components/StandardInputs";
+import { TaskPlanning, PlannedRunView, PlannedRuns } from "../components/TaskPlanning";
 import { EvaluationRuns } from "../components/EvaluationRuns";
 import { RealReports } from "../components/RealReports";
 import { RealLeaderboard } from "../components/RealLeaderboard";
@@ -73,6 +74,7 @@ function Notice({ children }: { children: ReactNode }) {
 export function App() {
   const [profiles, setProfiles] = useProfiles();
   const [page, setPage] = useState(location.hash.slice(1) || "console");
+  const [consoleMode, setConsoleMode] = useState("planning");
   const [toast, setToast] = useState("");
   const evaluationPage = page === "tasks" || page.startsWith("run/") || page.startsWith("evaluate?");
   const go = (path: string) => {
@@ -92,7 +94,7 @@ export function App() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const title = page.startsWith("run/")
+  const title = page.startsWith("run/") || page.startsWith("planned-run/")
     ? "测评任务详情"
     : page.startsWith("evaluate?")
       ? "新建探索测评"
@@ -103,7 +105,7 @@ export function App() {
           : menus.find((menu) => menu.id === page)?.label || "控制台";
   const descriptions: Record<string, string> = {
     home: "从一次测评开始，让模型能力与执行证据清晰可见。",
-    console: "选择已保存的模型服务、配置与执行资源，发起 GPQA Lite 探索测评。",
+    console: "选择模型服务、执行配置与资源，估算任务耗时并编排测评。",
     config: "按模型与数据集分别维护测试参数、清单和执行绑定。",
     tasks: "追踪每一次测评，定位每一个问题。",
     reports: "查看测评报告，追溯历史结果。",
@@ -164,7 +166,14 @@ export function App() {
 
         {page === "home" && <Overview go={go} />}
         {page === "console" && (
-          <EvaluationConsole profiles={profiles} setProfiles={setProfiles} notify={setToast} />
+          <div className="console-workspace stack">
+            <div className="console-mode-switch" role="group" aria-label="测评入口">
+              <button aria-pressed={consoleMode === "planning"} onClick={() => setConsoleMode("planning")}>测评规划</button>
+              <button aria-pressed={consoleMode === "lite"} onClick={() => setConsoleMode("lite")}>GPQA Lite 快速验证</button>
+            </div>
+            <div hidden={consoleMode !== "planning"}><TaskPlanning /></div>
+            <div hidden={consoleMode !== "lite"}><p className="mode-description">快速验证 · 仅 GPQA Lite · 单数据集串行 · 最多 5 次模型请求</p><EvaluationConsole profiles={profiles} setProfiles={setProfiles} notify={setToast} /></div>
+          </div>
         )}
         {page === "config" && <div className="management-toolbar">
           <ManagementDrawer title="管理样本清单"><DatasetManifests /></ManagementDrawer>
@@ -174,6 +183,8 @@ export function App() {
         {(page === "config" || page.startsWith("config/")) && (
           <Configurations profiles={profiles} setProfiles={setProfiles} go={go} notify={setToast} />
         )}
+        {page.startsWith("planned-run/") && <PlannedRunView runId={page.slice(12)} />}
+        {page === "tasks" && <PlannedRuns />}
         {evaluationPage && (
           <div className="stack evaluation-tasks">
             <EvaluationRuns
