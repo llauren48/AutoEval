@@ -14,9 +14,10 @@ type Attempt = {
   evidence_sha256: string | null;
   created_at: string;
   finished_at: string | null;
-  tool_metadata?: { tool_started_at: string | null; tool_finished_at: string | null; duration_sec: number | null; input_tokens: number | null; output_tokens: number | null; diagnostics: string[]; status: string } | null;
+  tool_metadata?: { score?: number | null; tool_started_at: string | null; tool_finished_at: string | null; duration_sec: number | null; input_tokens: number | null; output_tokens: number | null; diagnostics: string[]; status: string } | null;
 };
 
+const caseScore = (metadata?: Attempt["tool_metadata"]) => typeof metadata?.score === "number" && Number.isFinite(metadata.score) ? String(metadata.score) : "未提供评分";
 const time = (value: string | null) => value && !Number.isNaN(Date.parse(value)) ? new Date(value).toLocaleString("zh-CN") : "—";
 
 export function CaseHistory({ initialRun = "" }: { initialRun?: string }) {
@@ -82,11 +83,12 @@ export function CaseHistory({ initialRun = "" }: { initialRun?: string }) {
       {rows.length > 0 && (
         <div className="table-wrap" data-testid="case-attempts">
           <table>
-            <thead><tr><th>数据集 / 样本</th><th>尝试</th><th>执行状态</th><th>错误类别</th><th>创建时间</th><th>完成时间</th><th>证据</th></tr></thead>
+            <thead><tr><th>数据集 / 样本</th><th>尝试</th><th>得分</th><th>执行状态</th><th>错误类别</th><th>创建时间</th><th>完成时间</th><th>证据</th></tr></thead>
             <tbody>{rows.filter((row) => !stateFilter || row.state === stateFilter).map((row) => (
               <tr key={row.id}>
                 <td><b>{row.dataset_key}</b><small>{row.sample_id}</small></td>
                 <td>第 {row.attempt_no} 次</td>
+                <td>{caseScore(row.tool_metadata)}</td>
                 <td><span className={`case-status ${row.state === "succeeded" ? "passed" : row.state === "failed" ? "error" : "running"}`}>{({ succeeded: "执行成功", failed: "执行失败", started: "执行中 / 待查证" } as Record<string,string>)[row.state] || "待确认"}</span></td>
                 <td>{row.error_code || "无执行错误"}{row.error_code && <small>请检查服务连通性、资源环境及本次证据；结果未知时勿重复提交。</small>}</td>
                 <td>{time(row.created_at)}</td>
