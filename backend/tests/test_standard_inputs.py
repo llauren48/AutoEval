@@ -233,6 +233,43 @@ async def test_postgres_concurrent_import_conflict_and_immutable_history():
                 base + "/import", json={"bundle": changed, "expected_sha256": digest(changed)}
             )
             assert conflict.status_code == 409
+            suggestion = await client.post(base + f"/{identifier}/autocomplete", json={})
+            assert suggestion.status_code == 200, suggestion.text
+            assert suggestion.json()["data"]["requires_confirmation"]
+            before = (await client.get(base + f"/{identifier}")).json()["data"]
+            assert before["compilations"] == []
+            from autoeval.registry import Asset
+
+            source_name = before["source_model"]
+            async with app.state.sessions() as session, session.begin():
+                matched_model = Asset(
+                    asset_key=source_name.swapcase(), kind="model", name="Case fixture"
+                )
+                session.add(matched_model)
+                await session.flush()
+                matched_id = matched_model.id
+            try:
+                matched = await client.post(base + f"/{identifier}/autocomplete", json={})
+                assert matched.status_code == 200, matched.text
+                assert matched.json()["data"]["candidate"]["model_id"] == str(matched_id)
+                async with app.state.sessions() as session, session.begin():
+                    ambiguous_model = Asset(
+                        asset_key=source_name, kind="model", name="Ambiguous fixture"
+                    )
+                    session.add(ambiguous_model)
+                    await session.flush()
+                    ambiguous_id = ambiguous_model.id
+                try:
+                    ambiguous = await client.post(base + f"/{identifier}/autocomplete", json={})
+                    assert ambiguous.json()["data"]["candidate"]["model_id"] is None
+                finally:
+                    async with app.state.sessions() as session, session.begin():
+                        await session.delete(await session.get(Asset, ambiguous_id))
+            finally:
+                async with app.state.sessions() as session, session.begin():
+                    await session.delete(await session.get(Asset, matched_id))
+
+            assert not suggestion.json()["data"]["preview"]["execution_enabled"]
             compiled = await client.post(base + f"/{identifier}/compile", json={})
             assert compiled.status_code == 200, compiled.text
             assert not compiled.json()["data"]["execution_enabled"]

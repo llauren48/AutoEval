@@ -4,7 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint, select
+from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint, func, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Mapped, mapped_column
@@ -103,6 +103,81 @@ async def get_default(model_id: uuid.UUID, request: Request):
     except SQLAlchemyError as exc:
         raise HTTPException(503, "Model database unavailable or migration required") from exc
     return {"data": data, "request_id": request.state.request_id}
+
+
+class CatalogRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    catalog_id: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", max_length=128)
+
+
+@router.post("/from-catalog")
+async def register_catalog_model(body: CatalogRegistration, request: Request):
+    """Register identity from persisted official evidence, never invent a service."""
+    from autoeval.data_workbench import LeaderboardRecord, development
+
+    development(request)
+    async with request.app.state.sessions() as session, session.begin():
+        records = (
+            await session.scalars(
+                select(LeaderboardRecord).where(
+                    LeaderboardRecord.payload["source_type"].astext == "official",
+                    LeaderboardRecord.state == "approved",
+                    func.lower(
+                        LeaderboardRecord.payload["conditions"]["modelscope_model_id"].astext
+                    )
+                    == body.catalog_id.lower(),
+                )
+            )
+        ).all()
+        if not records:
+            raise HTTPException(422, "No reviewed official catalog evidence for this model")
+        canonical = records[0].payload["conditions"]["modelscope_model_id"]
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "catalog-model:" + canonical.lower()},
+        )
+        matches = (
+            await session.scalars(
+                select(Asset).where(func.lower(Asset.asset_key) == canonical.lower())
+            )
+        ).all()
+        if len(matches) > 1 or (matches and matches[0].kind != "model"):
+            raise HTTPException(409, "Ambiguous model identity; select explicitly")
+        asset = (
+            matches[0]
+            if matches
+            else Asset(asset_key=canonical, kind="model", name=canonical.split("/")[-1])
+        )
+        if not matches:
+            session.add(asset)
+            await session.flush()
+        version = await session.scalar(
+            select(AssetVersion).where(
+                AssetVersion.asset_id == asset.id, AssetVersion.version == "catalog-identity.v1"
+            )
+        )
+        if version is None:
+            version = AssetVersion(
+                asset_id=asset.id,
+                version="catalog-identity.v1",
+                metadata_json={
+                    "identity_only": True,
+                    "catalog_id": canonical,
+                    "source_record_ids": sorted(str(r.id) for r in records),
+                },
+            )
+            session.add(version)
+            await session.flush()
+        return {
+            "data": {
+                "id": str(asset.id),
+                "model_id": asset.asset_key,
+                "version_id": str(version.id),
+                "connection_state": "not_configured",
+                "execution_enabled": False,
+            },
+            "request_id": request.state.request_id,
+        }
 
 
 @router.post("", status_code=201)

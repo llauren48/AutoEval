@@ -12,7 +12,7 @@ from pathlib import PurePosixPath
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import ForeignKey, String, UniqueConstraint, select, text
+from sqlalchemy import ForeignKey, String, UniqueConstraint, func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -262,7 +262,10 @@ class Sync(Strict):
 
 
 class CompileInput(Strict):
-    adaptor_revision: str = Field(default=CURRENT_ADAPTOR, pattern="^(955089ab32ef696c231d628f5ad0d9da28f430c4|1fb877ace4a087cb805e9a3d5878dcce6349bc35)$")
+    adaptor_revision: str = Field(
+        default=CURRENT_ADAPTOR,
+        pattern="^(955089ab32ef696c231d628f5ad0d9da28f430c4|1fb877ace4a087cb805e9a3d5878dcce6349bc35)$",
+    )
     model_id: uuid.UUID | None = None
     target_id: uuid.UUID | None = None
     template_version: str = Field(default="platform.v1", pattern=r"^[a-zA-Z0-9_.-]{1,128}$")
@@ -864,8 +867,35 @@ async def versions(
                 .limit(limit + 1)
             )
         ).all()
+        latest = {}
+        if rows:
+            compiled = (
+                await session.scalars(
+                    select(StandardInputCompilation)
+                    .where(StandardInputCompilation.input_id.in_([row.id for row in rows[:limit]]))
+                    .order_by(
+                        StandardInputCompilation.created_at.desc(),
+                        StandardInputCompilation.id.desc(),
+                    )
+                )
+            ).all()
+            for item in compiled:
+                latest.setdefault(
+                    item.input_id,
+                    {
+                        "input_ready": item.payload["input_ready"],
+                        "template_version": item.payload["template_version"],
+                        "blocking_reasons": item.payload.get("blocking_reasons", []),
+                    },
+                )
         return {
-            **envelope([row_data(row) for row in rows[:limit]], request),
+            **envelope(
+                [
+                    {**row_data(row), "latest_compilation": latest.get(row.id)}
+                    for row in rows[:limit]
+                ],
+                request,
+            ),
             "next_offset": offset + limit if len(rows) > limit else None,
         }
 
@@ -886,6 +916,94 @@ async def detail(input_id: uuid.UUID, request: Request):
         ).all()
         return envelope(
             {**row_data(row), "compilations": [item.payload for item in history]}, request
+        )
+
+
+def autocomplete_template(entry):
+    """Build a deterministic input-only template from pinned repository evidence."""
+    source = entry["files"].get("benchmark_config.json")
+    template = (
+        safe_json(source["raw"])
+        if source
+        else safe_json(entry["files"]["standard_config.json"]["raw"])
+    )
+    template = copy.deepcopy(template)
+    template["params"] = {
+        key: value for key, value in template["params"].items() if key not in ENVIRONMENT
+    }
+    validate_config(template)
+    return template
+
+
+@router.post("/{input_id}/autocomplete")
+async def autocomplete_input(input_id: uuid.UUID, body: CompileInput, request: Request):
+    """Preview only: never persist, probe a host, approve, or start execution."""
+    async with request.app.state.sessions() as session:
+        row = await session.get(StandardInputVersion, input_id)
+        if row is None:
+            raise HTTPException(404, "Standard input not found")
+        model = await session.get(Asset, body.model_id) if body.model_id else None
+        if body.model_id and (not model or model.kind != "model"):
+            raise HTTPException(422, "Select a registered model")
+        if not body.model_id:
+            candidates = (
+                await session.scalars(
+                    select(Asset).where(
+                        Asset.kind == "model",
+                        or_(
+                            func.lower(Asset.asset_key) == row.payload["source_model"].lower(),
+                            func.lower(Asset.name) == row.payload["source_model"].lower(),
+                        ),
+                    )
+                )
+            ).all()
+            if len(candidates) == 1:
+                model = candidates[0]
+        model_id = model.id if model else None
+        target = await session.get(TargetBinding, body.target_id) if body.target_id else None
+        if target:
+            version = await session.get(AssetVersion, target.model_version_id)
+            if not version or version.asset_id != model_id:
+                raise HTTPException(422, "Target must belong to selected model")
+        elif model_id:
+            candidates = (
+                await session.scalars(
+                    select(TargetBinding)
+                    .join(AssetVersion, TargetBinding.model_version_id == AssetVersion.id)
+                    .where(AssetVersion.asset_id == model_id)
+                )
+            ).all()
+            if len(candidates) == 1:
+                target = candidates[0]
+        try:
+            template = autocomplete_template(row.payload)
+            version = "auto.v1." + digest(template)[:16]
+            candidate = body.model_copy(
+                update={
+                    "model_id": model_id,
+                    "target_id": target.id if target else None,
+                    "template": template,
+                    "template_version": version,
+                }
+            )
+            preview = compile_config(row.payload, candidate, target)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return envelope(
+            {
+                "candidate": candidate.model_dump(mode="json"),
+                "preview": preview,
+                "template_source": "benchmark_config.json"
+                if not row.payload["startup_missing"]
+                else "platform-standard-template.v1:" + row.revision,
+                "requires_confirmation": True,
+                "notes": [
+                    "模型名忽略大小写匹配；只有唯一模型与唯一服务可自动选择。",
+                    "未绑定的资源路径与Agent参数不推测，请填写并确认。",
+                    "预览不保存、不批准、不执行；确认后保存新的不可变编译快照。",
+                ],
+            },
+            request,
         )
 
 

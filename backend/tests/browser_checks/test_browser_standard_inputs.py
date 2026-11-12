@@ -27,7 +27,9 @@ def test_standard_preview_import_mapping_and_compilation_drawers(browser_page):
         if(p.includes('/standard-inputs/sync-preview') || p.includes('/standard-inputs/preview'))
           data={bundle:window.standardBundle,sha256:'c'.repeat(64),entries:[row]};
         else if(p.includes('/standard-inputs/import')) {window.inputImported=true;data=[row];}
-        else if(p.includes('/standard-inputs/input-fixture/compile')) {
+        else if(p.includes('/standard-inputs/input-fixture/autocomplete')) {
+          data={candidate:{model_id:'model-1',target_id:'target-1',template_version:'auto.v1.fixture',template:{tool:'ais_bench',subcommand:'llm_accuracy',params:{max_out_len:262144}}},preview:{input_ready:false,blocking_reasons:['tool_root_missing'],field_sources:{'params.max_out_len':'standard-lock'},overrides:[]},template_source:'platform-standard-template.v1:fixture',notes:['预览不保存、不批准、不执行']};
+        } else if(p.includes('/standard-inputs/input-fixture/compile')) {
           window.compiledInput=JSON.parse(init.body);
           data={input_ready:true,blocking_reasons:[],sha256:'d'.repeat(64),config:{tool:'ais_bench',subcommand:'llm_accuracy',params:{max_out_len:262144,execution:'docker'}},locked_fields:row.locked_fields,field_sources:{},overrides:[]};
         } else if(p.includes('/standard-inputs/input-fixture')) data={...row,compilations:[]};
@@ -48,10 +50,14 @@ def test_standard_preview_import_mapping_and_compilation_drawers(browser_page):
     page.get_by_role("button", name="确认登记输入版本").click()
     expect(page.get_by_text("标准输入已登记，配置未批准，执行未开放。", exact=True)).to_be_visible()
     page.get_by_role("button", name="查看输入详情", exact=True).click()
-    expect(page.get_by_role("dialog")).to_contain_text("params.max_out_len")
+    expect(page.get_by_role("dialog")).to_contain_text("标准参数只读")
     page.get_by_role("button", name="补全启动参数与模型映射").click()
     dialog = page.get_by_role("dialog", name="补全启动参数与模型映射", exact=True)
     expect(dialog).to_contain_text("必须填写非空平台启动模板")
+    dialog.get_by_role("button", name="自动补全配置", exact=True).click()
+    expect(dialog.get_by_role("region", name="自动补全预览")).to_contain_text("tool_root_missing")
+    expect(dialog.get_by_label("启动模板版本", exact=True)).to_have_value("auto.v1.fixture")
+    assert page.evaluate("window.compiledInput === null")
     dialog.get_by_label("平台模型", exact=True).select_option("model-1")
     dialog.get_by_label("模型服务", exact=True).select_option("target-1")
     dialog.get_by_label("启动模板 JSON", exact=True).fill('{"params":{"max_num_workers":1}}')

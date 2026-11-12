@@ -21,6 +21,14 @@ function tagLabel(catalog: TagCatalog, revision: string) {
   return matched.length ? matched.join("、") : catalog.status === "available" ? "无对应 Tag" : catalog.status === "loading" ? "Tag 查询中…" : "Tag 信息暂不可用";
 }
 
+
+const missingLabel = (reason: string) => ({
+  model_mapping_missing: "模型映射", target_missing: "模型服务绑定",
+  tool_root_missing: "AISBench 源码目录", datasets_dir_missing: "数据集目录",
+  task_path_missing: "任务目录或数据集版本", agent_missing: "Agent 参数",
+  startup_template_required: "启动模板",
+}[reason] || reason);
+
 type Bundle = { repository: string; revision: string; files: Record<string, string> };
 type InputVersion = {
   id: string; source_model: string; benchmark: string; revision: string; sha256: string;
@@ -28,6 +36,7 @@ type InputVersion = {
   field_changes?: { field: string; before: unknown; after: unknown; change: string }[];
   mapping: { dataset: string; variant: string }; changed_files?: string[]; removed_files?: string[];
   files: Record<string, { path: string; raw: string; sha256: string }>;
+  latest_compilation?: { input_ready: boolean; template_version: string; blocking_reasons?: string[] } | null;
   compilations?: Compilation[];
 };
 type Preview = { bundle: Bundle; sha256: string; entries: InputVersion[] };
@@ -48,6 +57,7 @@ function CompileForm({ entry }: { entry: InputVersion }) {
   const [taskPath, setTaskPath] = useState("");
   const [toolRoot, setToolRoot] = useState("");
   const [result, setResult] = useState<Compilation | null>(null);
+  const [suggestion, setSuggestion] = useState<{ preview: Compilation; template_source: string; notes: string[]; changes: unknown } | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -57,7 +67,22 @@ function CompileForm({ entry }: { entry: InputVersion }) {
       .catch(() => { if (!controller.signal.aborted) setMessage("模型与服务选项加载失败，请关闭后重试。"); });
     return () => controller.abort();
   }, []);
-  const changed = () => { setResult(null); setMessage(""); };
+  const changed = () => { setResult(null); setSuggestion(null); setMessage(""); };
+  const autocomplete = async () => {
+    setBusy(true); setMessage(""); setResult(null); setSuggestion(null);
+    try {
+      const response = await apiPost<{ candidate: { model_id: string | null; target_id: string | null; template: unknown; template_version: string }; preview: Compilation; template_source: string; notes: string[] }>(`/standard-inputs/${entry.id}/autocomplete`, {
+        model_id: modelId || null, target_id: targetId || null, execution,
+        adjustments: JSON.parse(adjustments), datasets_dir: datasetsDir || null,
+        task_path: taskPath || null, tool_root: toolRoot || null,
+      });
+      setSuggestion({ ...response, changes: { before: JSON.parse(template), after: response.candidate.template } });
+      setTemplate(JSON.stringify(response.candidate.template, null, 2));
+      setVersion(response.candidate.template_version);
+      setModelId(response.candidate.model_id || ""); setTargetId(response.candidate.target_id || "");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "自动补全失败"); }
+    finally { setBusy(false); }
+  };
   const compile = async () => {
     setBusy(true); setMessage(""); setResult(null);
     try {
@@ -71,6 +96,8 @@ function CompileForm({ entry }: { entry: InputVersion }) {
   };
   return <div className="stack">
     <p className="notice">仅保存输入映射与编译快照，不启动测评、不批准配置。请勿粘贴密钥；后台通过已登记服务引用凭据。</p>
+    <button disabled={busy} onClick={() => void autocomplete()}>自动补全配置</button>
+    {suggestion && <section className="notice stack" aria-label="自动补全预览"><h3>候选配置已补全，待确认保存</h3><p>来源：{suggestion.template_source}</p>{suggestion.notes.map(note => <small key={note}>{note}</small>)}<p>{suggestion.preview.input_ready ? "输入字段齐备；环境仍需预检" : "仍需补全：" + suggestion.preview.blocking_reasons.join("、")}</p><details><summary>补全差异与字段来源</summary><pre className="snapshot">{JSON.stringify({ changes: suggestion.changes, field_sources: suggestion.preview.field_sources, overrides: suggestion.preview.overrides }, null, 2)}</pre></details></section>}
     <label>平台模型<select aria-label="平台模型" value={modelId} onChange={(e) => { setModelId(e.target.value); setTargetId(""); changed(); }}><option value="">请选择模型映射</option>{models.map((m) => <option key={m.id} value={m.id}>{m.model_id} · {m.name}</option>)}</select></label>
     <label>模型服务<select aria-label="模型服务" value={targetId} onChange={(e) => { setTargetId(e.target.value); changed(); }}><option value="">请选择已登记服务</option>{targets.filter((t) => t.model_id === modelId).map((t) => <option key={t.id} value={t.id}>{t.remote_model} · {t.base_url}</option>)}</select></label>
     <label>启动模板版本<input aria-label="启动模板版本" value={version} onChange={(e) => { setVersion(e.target.value); changed(); }} /></label>
@@ -82,7 +109,7 @@ function CompileForm({ entry }: { entry: InputVersion }) {
     {entry.benchmark !== "DeepSWE" ? <label>数据集目录<input aria-label="数据集目录" value={datasetsDir} onChange={(e) => { setDatasetsDir(e.target.value); changed(); }} /></label> : <label>任务目录<input value={taskPath} onChange={(e) => { setTaskPath(e.target.value); changed(); }} placeholder="需与标准锁定路径一致" /></label>}
     <button className="primary" disabled={busy} onClick={() => void compile()}>{busy ? "校验中…" : "校验并保存输入快照"}</button>
     {message && <p role="alert">{message}</p>}
-    {result && <section className="stack" aria-label="输入校验结果"><h3>{result.input_ready ? "输入字段校验通过" : "输入待补全"}</h3><p>执行未开放 · 配置未批准 · 环境与工具能力尚未验证</p>{result.blocking_reasons.length > 0 && <ul>{result.blocking_reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>}<small>配置 SHA-256：{result.sha256}</small><details open><summary>脱敏启动配置</summary><pre className="snapshot">{JSON.stringify(result.config, null, 2)}</pre></details><details><summary>锁定字段、来源及覆盖差异</summary><pre className="snapshot">{JSON.stringify({ locked_fields: result.locked_fields, field_sources: result.field_sources, overrides: result.overrides }, null, 2)}</pre></details></section>}
+    {result && <section className="stack" aria-label="输入校验结果"><h3>{result.input_ready ? "输入字段校验通过" : "输入待补全"}</h3><p>执行未开放 · 配置未批准 · 环境与工具能力尚未验证</p>{result.blocking_reasons.length > 0 && <ul>{result.blocking_reasons.map((reason) => <li key={reason}>{missingLabel(reason)}</li>)}</ul>}<small>配置 SHA-256：{result.sha256}</small><details open><summary>脱敏启动配置</summary><pre className="snapshot">{JSON.stringify(result.config, null, 2)}</pre></details><details><summary>锁定字段、来源及覆盖差异</summary><pre className="snapshot">{JSON.stringify({ locked_fields: result.locked_fields, field_sources: result.field_sources, overrides: result.overrides }, null, 2)}</pre></details></section>}
   </div>;
 }
 
@@ -127,6 +154,6 @@ export function StandardInputs() {
     <small>离线目录先使用后台 import_standard_inputs 工具生成输入包。远程分支会先固定为完整提交号。</small>
     {message && <p role="status">{message}</p>}
     {preview && <section className="notice stack"><h3>导入预览</h3><p>版本 Tag：{tagLabel(tags, preview.bundle.revision)}</p><p>提交：{preview.bundle.revision}</p><ul>{preview.entries.map((entry) => <li key={`${entry.source_model}/${entry.benchmark}`}>{entry.source_model} / {entry.benchmark} · {entry.startup_missing ? "待补全启动配置" : "包含启动配置"}<small>变更：{entry.changed_files?.join("、") || "无"}；移除：{entry.removed_files?.join("、") || "无"}</small><details><summary>查看标准参数差异与原文</summary><pre className="snapshot">{JSON.stringify({ field_changes: entry.field_changes, locked_fields: entry.locked_fields, files: entry.files }, null, 2)}</pre></details></li>)}</ul><button disabled={busy} className="primary" onClick={() => void perform(async () => { await apiPost("/standard-inputs/import", { bundle: preview.bundle, expected_sha256: preview.sha256 }); setPreview(null); setRevision((v) => v + 1); setMessage("标准输入已登记，配置未批准，执行未开放。"); })}>确认登记输入版本</button></section>}
-    <div className="table-wrap"><table><thead><tr><th>来源模型</th><th>基准 / 变体</th><th>版本 / 提交</th><th>状态</th><th>操作</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td>{row.source_model}</td><td>{row.benchmark}<small>平台内部映射：{row.mapping.dataset} / {row.mapping.variant}</small></td><td title={row.revision}>{tagLabel(tags, row.revision)}<small>{row.revision.slice(0, 12)}</small></td><td>{row.startup_missing ? "待补全启动配置" : "已登记，待校验"}<small>未批准 · 执行未开放</small></td><td><ManagementDrawer title="查看输入详情"><InputDetail entry={row} /></ManagementDrawer></td></tr>)}</tbody></table></div>{!rows.length && <p className="empty">暂无标准仓输入版本</p>}<OffsetPagination label="标准输入" offset={offset} nextOffset={next} onChange={setOffset} disabled={busy} />
+    <div className="table-wrap"><table><thead><tr><th>来源模型</th><th>基准 / 变体</th><th>版本 / 提交</th><th>状态</th><th>操作</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td>{row.source_model}</td><td>{row.benchmark}<small>平台内部映射：{row.mapping.dataset} / {row.mapping.variant}</small></td><td title={row.revision}>{tagLabel(tags, row.revision)}<small>{row.revision.slice(0, 12)}</small></td><td>{row.latest_compilation ? row.latest_compilation.input_ready ? "输入字段齐备，待环境预检" : "已编译，仍有缺失项" : row.startup_missing ? "待补全启动配置" : "已登记，待校验"}<small>{row.latest_compilation?.blocking_reasons?.length ? "缺少：" + row.latest_compilation.blocking_reasons.map(missingLabel).join("、") : ""}</small><small>未批准 · 执行未开放</small></td><td><ManagementDrawer title="查看输入详情"><InputDetail entry={row} /></ManagementDrawer></td></tr>)}</tbody></table></div>{!rows.length && <p className="empty">暂无标准仓输入版本</p>}<OffsetPagination label="标准输入" offset={offset} nextOffset={next} onChange={setOffset} disabled={busy} />
   </section>;
 }
