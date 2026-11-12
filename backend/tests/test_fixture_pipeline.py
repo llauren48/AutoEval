@@ -71,7 +71,7 @@ async def test_upload_failure_then_retry_without_remote_reexecution(monkeypatch)
     async with app.router.lifespan_context(app):
         async with app.state.sessions() as session, session.begin():
             source = await session.scalar(
-                select(UnifiedArtifact).order_by(UnifiedArtifact.created_at.desc()).limit(1)
+                select(UnifiedArtifact).where(UnifiedArtifact.collection_key == "fixture-v1").order_by(UnifiedArtifact.created_at.desc()).limit(1)
             )
             snapshot = await session.scalar(
                 select(RunSnapshot).where(RunSnapshot.run_id == source.run_id)

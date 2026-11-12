@@ -15,6 +15,7 @@ from autoeval.models import Outbox
 from autoeval.workflows import (
     DockerDiagnosticWorkflow,
     GpqaExplorationWorkflow,
+    MonitoredGpqaWorkflow,
     ReportAnalysisWorkflow,
     RunWorkflow,
     UnifiedFixtureWorkflow,
@@ -44,6 +45,7 @@ async def deliver_once(sessions, client, *, run_id=None) -> bool:
         try:
             workflow_kind = row.payload.get("workflow_kind")
             workflow_entry = {
+                "monitored_gpqa_v1": MonitoredGpqaWorkflow.run,
                 "docker_diagnostic": DockerDiagnosticWorkflow.run,
                 "gpqa_exploration": GpqaExplorationWorkflow.run,
                 "report_analysis": ReportAnalysisWorkflow.run,

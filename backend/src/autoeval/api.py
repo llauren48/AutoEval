@@ -22,6 +22,7 @@ from autoeval.db import create_database
 from autoeval.evaluations import router as evaluations_router
 from autoeval.fixture_pipeline import router as fixture_pipeline_router
 from autoeval.leaderboards import router as leaderboard_router
+from autoeval.monitored_execution import router as monitored_router
 from autoeval.profiles import router as profiles_router
 from autoeval.registry import router as registry_router
 from autoeval.reports import router as reports_router
@@ -30,6 +31,7 @@ from autoeval.runs import router as runs_router
 from autoeval.ssh_resources import router as ssh_resources_router
 from autoeval.standard_inputs import router as standard_inputs_router
 from autoeval.targets import router as targets_router
+from autoeval.task_monitor import router as task_monitor_router
 from autoeval.unified_outputs import router as unified_outputs_router
 
 
@@ -48,6 +50,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(standard_inputs_router)
     app.include_router(unified_outputs_router)
     app.include_router(fixture_pipeline_router)
+    app.include_router(task_monitor_router)
+    app.include_router(monitored_router)
     app.include_router(configuration_router)
     app.include_router(case_history_router)
     app.include_router(datasets_router)

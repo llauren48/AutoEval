@@ -1,0 +1,10 @@
+--- a/src/autoeval_adaptor/tools/ais_bench/common.py
++++ b/src/autoeval_adaptor/tools/ais_bench/common.py
+@@ -97,6 +97,7 @@
+     if extra_args:
+         command.extend(extra_args)
+     command.extend(runtime.extra_cli_args)
++    command.extend(["--num-warmups", "0", "--monitor-port", str(runtime.monitor_port)])
+     return command
+ 
+ 

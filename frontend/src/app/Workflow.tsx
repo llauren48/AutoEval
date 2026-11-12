@@ -466,10 +466,11 @@ export function EvaluationConsole({ profiles, setProfiles, notify }: {
   const targets = useOptions<Target>("/target-bindings");
   const docker = useOptions<Resource>("/resources");
   const ssh = useOptions<Resource>("/ssh-resources");
+  const monitored = useOptions<Resource>("/aisbench-monitored/resources");
   const [target, setTarget] = useState<Target | null>(null);
   const [resource, setResource] = useState<Resource | null>(null);
   const [resourceKind, setResourceKind] = useState("docker_local");
-  const resources = resourceKind === "customer_ssh" ? ssh : docker;
+  const resources = resourceKind === "aisbench_monitor" ? monitored : resourceKind === "customer_ssh" ? ssh : docker;
   const { config, setConfig, loadingDefault, defaultError, setDefaultError, reloadDefault } = useDefaultConfig(target);
   const { busy, message, submit } = useExplorationSubmission();
   const [configKind, setConfigKind] = useState("标准配置");
@@ -523,7 +524,7 @@ export function EvaluationConsole({ profiles, setProfiles, notify }: {
             <label>资源接入方式
               <select aria-label="控制台资源接入方式" value={resourceKind} disabled={busy} onChange={(e) => { setResourceKind(e.target.value); setResource(null); }}>
                 <option value="docker_local">本机Docker</option>
-                <option value="customer_ssh">客户SSH服务器</option>
+                <option value="customer_ssh">客户SSH服务器</option><option value="aisbench_monitor">远程 AISBench（运行监控）</option>
               </select>
             </label>
             <label>执行资源

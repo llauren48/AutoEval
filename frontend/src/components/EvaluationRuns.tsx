@@ -1,3 +1,4 @@
+import { RunMonitor } from "./RunMonitor";
 import { SearchableSelect } from "./SearchableSelect";
 import { CopyIdentifier } from "./CopyIdentifier";
 import { SubmissionReview } from "./SubmissionReview";
@@ -16,7 +17,7 @@ type Run = { report_id?: string | null; id: string; state: string; remote_model?
 type Snapshot = { sha256: string; config_version_id: string; config_sha256: string; target_id: string; remote_model: string; resource_kind: string; sample_count: number; parameters: Record<string, unknown>; manifest_id: string; manifest_sha256: string; tool?: Record<string, unknown>; profile_id?: string; max_model_requests?: number; execution_origin: string };
 type Detail = Run & { updated_at?: string; cancel_requested_at?: string; events?: { seq: number; type: string; created_at: string }[]; run_mode: string; gate_status: string; snapshot: Snapshot | null; execution_unresolved: boolean; cleanup: { state: string; attempt_count: number; last_error_code: string | null }; report: null | { id: string; validity: string; summary: Record<string, unknown> } };
 const terminal = (state: string) => ["completed", "failed", "cancelled"].includes(state);
-const resourceLabel = (kind?: string) => kind === "customer_ssh" ? "客户 SSH 服务器" : "本机 Docker";
+const resourceLabel = (kind?: string) => kind === "aisbench_monitor" ? "远程 AISBench" : kind === "customer_ssh" ? "客户 SSH 服务器" : "本机 Docker";
 const time = (value?: string) => value && !Number.isNaN(Date.parse(value)) ? new Date(value).toLocaleString("zh-CN") : "暂无记录";
 const stateLabel = (value: string) => ({ completed: "已完成", failed: "执行失败", cancelled: "已取消" }[value] || "执行中");
 
@@ -25,8 +26,9 @@ export function EvaluationRuns({ runId = "", initialTarget = "", allowSubmit = t
   const targets = useOptions<Target>("/target-bindings");
   const docker = useOptions<Resource>("/resources");
   const ssh = useOptions<Resource>("/ssh-resources");
+  const monitored = useOptions<Resource>("/aisbench-monitored/resources");
   const [resourceKind, setResourceKind] = useState("docker_local");
-  const resources = resourceKind === "customer_ssh" ? ssh : docker;
+  const resources = resourceKind === "aisbench_monitor" ? monitored : resourceKind === "customer_ssh" ? ssh : docker;
   const [target, setTarget] = useState<Target | null>(null);
   const [resource, setResource] = useState<Resource | null>(null);
   const { config, setConfig, loadingDefault, defaultError, setDefaultError, reloadDefault } = useDefaultConfig(target);
@@ -121,7 +123,7 @@ export function EvaluationRuns({ runId = "", initialTarget = "", allowSubmit = t
           <label>探索配置 <SearchableSelect aria-label="探索配置" value={config?.id || ""} disabled={busy || loadingDefault} onChange={(event) => { setConfig(configRows.find((row) => row.id === event.target.value) || null); setDefaultError(""); }}><option value="">请选择已绑定Profile的Lite配置</option>{configRows.map((row) => <option key={row.id} value={row.id}>{row.display_name} · {row.version_label}</option>)}</SearchableSelect></label>
           {loadingDefault && <p role="status">正在读取模型默认配置…</p>}{defaultError && <p role="status">{defaultError}</p>}
           <button disabled={busy || !target || loadingDefault} onClick={reloadDefault}>重新加载模型默认配置</button>
-          <label>探索资源接入方式<select aria-label="探索资源接入方式" value={resourceKind} disabled={busy} onChange={(event) => { setResourceKind(event.target.value); setResource(null); }}><option value="docker_local">本机Docker</option><option value="customer_ssh">客户SSH服务器</option></select></label>
+          <label>探索资源接入方式<select aria-label="探索资源接入方式" value={resourceKind} disabled={busy} onChange={(event) => { setResourceKind(event.target.value); setResource(null); }}><option value="docker_local">本机Docker</option><option value="customer_ssh">客户SSH服务器</option><option value="aisbench_monitor">远程 AISBench（运行监控）</option></select></label>
           <label>探索执行资源 <SearchableSelect aria-label="探索执行资源" value={resource?.id || ""} disabled={busy || resources.loading} onChange={(event) => setResource(resourceRows.find((row) => row.id === event.target.value) || null)}><option value="">请选择资源</option>{resourceRows.map((row) => <option key={row.id} value={row.id}>{row.binding_key}</option>)}</SearchableSelect></label>
           {[configs, targets, resources].some((source) => source.error) && <p role="alert">选项加载失败。<button onClick={() => { configs.retry(); targets.retry(); resources.retry(); }}>重试选项加载</button></p>}
           <p className="muted">配置须为 GPQA 单数据集、Lite、并发 1、temperature=0、top_p=1。每页 20 条，翻页保留已选项，提交时后台再次校验。</p>
@@ -142,7 +144,7 @@ export function EvaluationRuns({ runId = "", initialTarget = "", allowSubmit = t
             <div className="spread"><div><h2>测评任务</h2><p className="muted">统计与筛选范围为当前页。</p></div><a className="link" href="#console">发起探索测评</a></div>
             <div className="filters">
               <label className="select-field"><span>状态</span><select aria-label="任务状态筛选" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>全部状态</option><option>执行中</option><option value="completed">已完成</option><option value="failed">执行失败</option><option value="cancelled">已取消</option></select></label>
-              <label className="select-field"><span>资源</span><select aria-label="任务资源筛选" value={resourceFilter} onChange={(event) => setResourceFilter(event.target.value)}><option value="全部资源">全部资源</option><option value="docker_local">本机 Docker</option><option value="customer_ssh">客户 SSH 服务器</option></select></label>
+              <label className="select-field"><span>资源</span><select aria-label="任务资源筛选" value={resourceFilter} onChange={(event) => setResourceFilter(event.target.value)}><option value="全部资源">全部资源</option><option value="docker_local">本机 Docker</option><option value="customer_ssh">客户 SSH 服务器</option><option value="aisbench_monitor">远程 AISBench</option></select></label>
               <label className="search"><input aria-label="搜索任务" placeholder="搜索任务 ID 或模型" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
             </div>
 
@@ -170,6 +172,7 @@ export function EvaluationRuns({ runId = "", initialTarget = "", allowSubmit = t
           {detailTab === "配置快照" ? <section data-testid="run-snapshot"><h3>本次配置快照</h3><dl className="detail-properties"><div><dt>执行参数</dt><dd>{detail.snapshot?.parameters ? Object.entries(detail.snapshot.parameters).map(([key, value]) => `${({output:"回答长度", concurrency:"并发数", temperature:"随机性", top_p:"候选范围", scope:"范围"} as Record<string,string>)[key] || key}：${String(value)}`).join("；") : "暂无信息"}</dd></div><div><dt>样本清单</dt><dd>{detail.snapshot?.manifest_id || "暂无信息"}</dd></div><div><dt>工具版本</dt><dd>{String(detail.snapshot?.tool?.revision || "暂无信息")}</dd></div></dl><p className="muted">本次提交时冻结，后续配置修改不会影响历史任务。</p><dl className="detail-properties"><div><dt>模型</dt><dd>{detail.snapshot?.remote_model || "—"}</dd></div><div><dt>样本数</dt><dd>{detail.snapshot?.sample_count ?? "—"}</dd></div><div><dt>配置版本</dt><dd>{detail.snapshot?.config_version_id || "—"}</dd></div></dl><ManagementDrawer title="查看完整快照与校验值"><pre className="snapshot">{JSON.stringify(detail.snapshot, null, 2)}</pre></ManagementDrawer></section> : <>
             <div className="spread">{datasetOpen ? <button className="link" onClick={() => { setDatasetOpen(false); setCaseOpen(false); }}>返回任务总览</button> : <h3>任务总览</h3>}<span className="muted">{datasetOpen ? "GPQA · Lite" : "1 个数据集"}</span></div>
             <section className="detail-progress"><div className="spread"><b>{datasetOpen ? "GPQA 执行状态" : "整体执行状态"}</b><span>{stateLabel(detail.state)}</span></div>{detailError && <p className="notice" role="alert">当前展示为上次查询结果，状态可能过期；恢复连接后自动刷新。</p>}{detail.state === "failed" && <p role="alert">执行失败。请查看 Case 的错误类别和证据，确认原因后再决定后续操作。<button className="link" onClick={() => { setDatasetOpen(true); setCaseOpen(true); }}>定位失败记录</button></p>}<p>当前阶段：{({ accepted: "已接收，等待调度", queued: "排队中", preparing: "准备执行环境", running: "测评执行中", aggregating: "收集结果与生成报告", completed: "执行结束", cancelling: "取消确认中，仍可能保留资源占用", cancelled: "取消已确认", failed: "执行失败" } as Record<string, string>)[detail.state] || "状态待确认"}</p>{detail.cancel_requested_at && <p>取消请求：{time(detail.cancel_requested_at)}；以终止确认及清理状态为准。</p>}<p className="muted">{detail.report ? "报告已归档，当前仅展示历史执行统计；成绩与证据完整性请查看报告。" : "报告尚未归档，暂不展示未经确认的样本进度。"}</p></section>
+            <RunMonitor runId={detail.id} terminal={terminal(detail.state)} />
             <div className="task-overview-stats">{[["计划样本", detail.snapshot?.sample_count], ["执行成功", detail.report?.summary.successful_samples], ["执行失败", detail.report?.summary.failed_samples], ["缺测样本", detail.report?.summary.missing_samples], ["判分通过", "—"], ["判分未通过", "—"]].map(([label, value]) => <div className="case-stat" key={String(label)}><span>{String(label)}</span><strong>{value === undefined ? "—" : String(value)}</strong></div>)}</div>
             {!datasetOpen ? <div className="table-wrap"><table><thead><tr><th>数据集</th><th>状态</th><th>范围 / 样本数</th><th>报告状态</th><th>操作</th></tr></thead><tbody><tr><td>GPQA</td><td>{stateLabel(detail.state)}</td><td>Lite · {detail.snapshot?.sample_count ?? "—"}</td><td>{detail.report ? "已归档，待核验证据" : "待生成"}</td><td><button className="link" onClick={() => setDatasetOpen(true)}>查看明细</button></td></tr></tbody></table></div> : <>
               <div className="tabs">{[false, true].map((value) => <button key={String(value)} className={caseOpen === value ? "active" : ""} onClick={() => setCaseOpen(value)}>{value ? "Case 明细" : "执行概况"}</button>)}</div>

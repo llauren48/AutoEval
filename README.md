@@ -1,5 +1,7 @@
 # AutoEval Demo
 
+AISBench 运行监控接入包含 `0026_run_monitor`、受控快照/日志接口和任务详情实时区域。仅使用 `backend/tool-locks/aisbench-monitor.json` 固定的独立部署副本，经 `AE_AISBENCH_MONITOR_CONFIG` 指向受保护配置，并启动 `uv run python -m autoeval.worker monitored`（compose 的 `workers` profile 亦包含该角色）。监控只绑定容器内 `127.0.0.1`，不发布宿主端口；单任务最多 5 次模型调用、每条最多 64 输出 tokens，工具与平台均不自动重试生成。Harbor 目前仅完成字段契约，真实测评尚未验收。历史录屏不代表当前修改后的验证结果。
+
 <p align="center">
   <img src="./frontend/public/brand/autoeval-logo.svg" alt="AutoEval 智能测评平台" width="300" />
 </p>

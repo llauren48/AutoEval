@@ -111,7 +111,7 @@ export function useExplorationSubmission() {
     const submission = pending.current;
     storePending(submission);
     try {
-      const row = await apiPost<{ run_id: string }>("/runs", payload, submission.key);
+      const row = await apiPost<{ run_id: string }>(resourceKind === "aisbench_monitor" ? "/aisbench-monitored/runs" : "/runs", payload, submission.key);
       pending.current = null; storePending(null); location.hash = runLink(row.run_id); setMessage("已提交；按冻结的Lite清单执行。");
     } catch (error) { setMessage(error instanceof Error ? error.message : "提交未确认；重试沿用同一提交键。"); }
     finally { submitting.current = false; setBusy(false); }

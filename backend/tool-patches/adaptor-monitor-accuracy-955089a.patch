@@ -1,0 +1,42 @@
+diff --git a/src/autoeval_adaptor/tools/ais_bench/accuracy.py b/src/autoeval_adaptor/tools/ais_bench/accuracy.py
+index 1142af7..c6699b7 100644
+--- a/src/autoeval_adaptor/tools/ais_bench/accuracy.py
++++ b/src/autoeval_adaptor/tools/ais_bench/accuracy.py
+@@ -187,7 +187,7 @@ def _render(
+ ) -> str:
+     lines = [
+         "# 由 AutoEval-Benchmark-Adaptor 自动生成，请勿手工修改",
+-        "import copy",
++        "import copy as __ae_copy",
+         "from mmengine.config import read_base",
+         "from ais_bench.benchmark.partitioners import NaivePartitioner",
+         "from ais_bench.benchmark.runners.local import LocalRunner",
+@@ -203,16 +203,16 @@ def _render(
+     lines.extend(
+         [
+             "",
+-            "models = copy.deepcopy(_base_models)",
++            "models = __ae_copy.deepcopy(_base_models)",
+             f"models[0].update({as_python(model_fields)})",
+         ]
+     )
+ 
+     if len(dataset_refs) == 1:
+-        lines.append("datasets = copy.deepcopy(_dataset_0)")
++        lines.append("datasets = __ae_copy.deepcopy(_dataset_0)")
+     else:
+         joined = " + ".join(
+-            f"copy.deepcopy(_dataset_{index})" for index in range(len(dataset_refs))
++            f"__ae_copy.deepcopy(_dataset_{index})" for index in range(len(dataset_refs))
+         )
+         lines.append(f"datasets = {joined}")
+ 
+@@ -230,7 +230,7 @@ def _render(
+             "",
+             "infer = dict(",
+             "    partitioner=dict(type=NaivePartitioner),",
+-            "    runner=dict(type=LocalRunner, task=dict(type=OpenICLApiInferTask)),",
++            f"    runner=dict(type=LocalRunner, debug=False, monitor_port={runtime.monitor_port!r}, task=dict(type=OpenICLApiInferTask)),",
+             ")",
+             "",
+             f"work_dir = {str(runtime.work_dir)!r}",

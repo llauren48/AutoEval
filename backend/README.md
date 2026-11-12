@@ -1,5 +1,7 @@
 # AutoEval 后端开发与联调
 
+AISBench 运行监控先执行迁移 `0026_run_monitor`，再将 `AE_AISBENCH_MONITOR_CONFIG` 指向包含固定 SSH 指纹、容器身份和独立部署根目录的受保护 JSON（不提交该文件）。部署必须匹配 `tool-locks/aisbench-monitor.json` 与 `tool-patches/`：runtime 文件名为 `runtime-<当前 monitored_runtime.py 摘要前12位>.py`，位于部署根目录，预检会核对完整 SHA-256、两个 Git HEAD、容器运行状态、loopback 与未发布端口。手动启动 `uv run python -m autoeval.worker monitored`，或使用 compose `workers` profile 中的 `monitored-worker`。默认离线测试不覆盖容器；`AE_MONITOR_CONTAINER_TEST=1` 仅用于已准备好固定容器和独立夹具根目录的无模型专项，`AE_INFRA_TEST=1` 用于真实 PostgreSQL/S3。历史真实任务不自动重跑，Harbor 真实执行未验收。
+
 人工产物归档验证新增0025迁移及 `uv run python -m autoeval.worker fixture`，使用独立队列和后台受保护配置。[端到端记录](../docs/platform-fixture-validation-2026-11-12.md)包含任务、对象及报告标识；它不代表模型测评执行通过。
 
 新增迁移 `0024_unified_outputs`：统一输出解析、不可变归档、case 工具观测字段及 Result Worker 收集活动。新版输入默认固定适配器 `955089a`，将平台运行参数与工具参数分离。真实远程执行仍未接通；[完整说明](../docs/unified-output-integration.md)。

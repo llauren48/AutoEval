@@ -18,6 +18,7 @@ import autoeval.runs  # noqa: F401 -- register migration metadata
 import autoeval.ssh_resources  # noqa: F401 -- register migration metadata
 import autoeval.standard_inputs  # noqa: F401 -- register migration metadata
 import autoeval.targets   # noqa: F401 -- register migration metadata
+import autoeval.task_monitor  # noqa: F401 -- register migration metadata
 import autoeval.unified_outputs  # noqa: F401 -- register migration metadata
 import autoeval.unified_artifacts  # noqa: F401 -- register migration metadata
 from autoeval.config import get_settings

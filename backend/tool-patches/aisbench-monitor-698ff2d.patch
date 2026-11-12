@@ -1,0 +1,50 @@
+diff --git a/ais_bench/benchmark/runners/local.py b/ais_bench/benchmark/runners/local.py
+index 482a403..b24b86e 100644
+--- a/ais_bench/benchmark/runners/local.py
++++ b/ais_bench/benchmark/runners/local.py
+@@ -89,15 +89,27 @@ class LocalRunner(BaseRunner):
+             tasks_monitor = TasksMonitor(task_names, output_path, is_debug, refresh_interval)
+             server = None
+             if not is_debug and monitor_port:
+-                server = LocalMonitorServer(tasks_monitor, port=monitor_port)
++                server = LocalMonitorServer(tasks_monitor, host="127.0.0.1", port=monitor_port)
+                 port = server.start()
+                 if port:
++                    if server.host != "127.0.0.1" or server._httpd.server_address[0] != "127.0.0.1":
++                        server.stop()
++                        raise RuntimeError("Monitor must bind only to container loopback")
++                    ready = os.environ.get("AE_MONITOR_READY")
++                    if ready:
++                        with open(ready, "w") as fp: fp.write(str(port))
+                     tasks_monitor.logger.info(
+                         f"Local task monitor server started at http://127.0.0.1:{port}"
+                     )
+             try:
+                 tasks_monitor.launch_state_board()
+             finally:
++                final_path = os.environ.get("AE_MONITOR_FINAL")
++                if final_path:
++                    snapshot = tasks_monitor.get_task_states_snapshot()
++                    with open(final_path + ".tmp", "w") as fp:
++                        __import__("json").dump({"tasks": snapshot, "work_dir": output_path}, fp, default=str)
++                    os.replace(final_path + ".tmp", final_path)
+                 if server is not None:
+                     server.stop()
+         monitor_p = multiprocessing.Process(
+@@ -126,7 +138,16 @@ class LocalRunner(BaseRunner):
+             all_gpu_ids = list(range(device_nums))
+ 
+         self.logger.debug(f"Available devices: {all_gpu_ids} (total: {device_nums}, type: {visible_devices})")
++        ready = os.environ.get("AE_MONITOR_READY")
++        if ready and os.path.exists(ready): os.remove(ready)
+         monitor_p.start()
++        if self.monitor_port and ready:
++            deadline = __import__("time").monotonic() + 10
++            while not os.path.exists(ready) and monitor_p.is_alive() and __import__("time").monotonic() < deadline:
++                __import__("time").sleep(0.05)
++            if not os.path.exists(ready):
++                monitor_p.terminate(); monitor_p.join()
++                raise RuntimeError("Monitor startup failed before task execution")
+ 
+         if self.debug:
+             status = self._run_debug(tasks, all_gpu_ids, monitor_p)

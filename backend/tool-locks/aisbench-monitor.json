@@ -1,0 +1,19 @@
+{
+  "aisbench_revision": "698ff2d1e027c07df37bdd158b62aace2a41ae3b",
+  "adaptor_revision": "955089ab32ef696c231d628f5ad0d9da28f430c4",
+  "pins": {
+    "src/autoeval_adaptor/tools/ais_bench/accuracy.py": "ac37d4257194fd49b4369d7548b8550939bc2149fbaf3b61223c518289f0e819",
+    "benchmark/ais_bench/benchmark/runners/local.py": "7af35f668f8d968c2b0ca0e2687f5c39b2e0f6692831c84b7cdf9b1b7a24254b",
+    "benchmark/ais_bench/datasets/gpqa/gpqa_diamond.csv": "41d1213cd7a4998605a26c2798500652572007161b3a92817ba46b35befcd305",
+    "src/autoeval_adaptor/tools/ais_bench/common.py": "1066c85370dc4a45ab6346985e22356aae795b36b2d0f68fbdcb79b0e40cbc4e",
+    "runtime-1fae6fdc86ed.py": "1fae6fdc86ed794ed99cf9c0021a40fa8b5fbbde5b55c829da73d1e6be4f3307"
+  },
+  "constraints": {
+    "monitor_host": "127.0.0.1",
+    "monitor_port": 18480,
+    "warmups": 0,
+    "retry": 0,
+    "max_samples": 5,
+    "max_output_tokens": 64
+  }
+}

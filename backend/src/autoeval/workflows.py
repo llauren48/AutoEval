@@ -85,3 +85,17 @@ class GpqaExplorationWorkflow:
             heartbeat_timeout=timedelta(seconds=90),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
+
+
+@workflow.defn
+class MonitoredGpqaWorkflow:
+    @workflow.run
+    async def run(self, run_id: str) -> dict:
+        return await workflow.execute_activity(
+            "execute_monitored_gpqa",
+            run_id,
+            task_queue="demo.monitored.v1",
+            start_to_close_timeout=timedelta(minutes=12),
+            heartbeat_timeout=timedelta(seconds=90),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )

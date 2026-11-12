@@ -9,12 +9,14 @@ from autoeval.analysis_activity import execute_report_analysis
 from autoeval.config import get_settings
 from autoeval.evaluation_activity import execute_gpqa_exploration
 from autoeval.fixture_pipeline import execute_unified_fixture
+from autoeval.monitored_execution import execute_monitored_gpqa
 from autoeval.run_activities import execute_docker_diagnostic
 from autoeval.unified_activity import collect_unified_output
 from autoeval.workflows import (
     AnalysisWorkflow,
     DockerDiagnosticWorkflow,
     GpqaExplorationWorkflow,
+    MonitoredGpqaWorkflow,
     ReportAnalysisWorkflow,
     RunWorkflow,
     UnifiedFixtureWorkflow,
@@ -25,6 +27,11 @@ async def serve(role: str):
     settings = get_settings()
     client = await Client.connect(settings.temporal_address, namespace=settings.temporal_namespace)
     options = {
+        "monitored": {
+            "task_queue": "demo.monitored.v1",
+            "workflows": [MonitoredGpqaWorkflow],
+            "activities": [execute_monitored_gpqa],
+        },
         "fixture": {
             "task_queue": "demo.fixture.workflow.v1",
             "workflows": [UnifiedFixtureWorkflow],
@@ -35,6 +42,7 @@ async def serve(role: str):
             "workflows": [
                 RunWorkflow,
                 AnalysisWorkflow,
+                MonitoredGpqaWorkflow,
                 DockerDiagnosticWorkflow,
                 GpqaExplorationWorkflow,
                 ReportAnalysisWorkflow,
@@ -68,7 +76,16 @@ async def serve(role: str):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "role", choices=["workflow", "analysis-workflow", "io", "result", "gpqa", "fixture"]
+        "role",
+        choices=[
+            "workflow",
+            "analysis-workflow",
+            "io",
+            "result",
+            "gpqa",
+            "fixture",
+            "monitored",
+        ],
     )
     asyncio.run(serve(parser.parse_args().role))
 

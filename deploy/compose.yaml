@@ -81,6 +81,10 @@ services:
     <<: *backend
     command: ["python", "-m", "autoeval.worker", "result"]
     profiles: ["workers"]
+  monitored-worker:
+    <<: *backend
+    command: ["python", "-m", "autoeval.worker", "monitored"]
+    profiles: ["workers"]
   reconciler:
     <<: *backend
     command: ["python", "-m", "autoeval.reconciler"]
