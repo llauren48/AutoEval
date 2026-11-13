@@ -33,6 +33,7 @@ class ReportAnalysis(Record, Base):
     )
     run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("evaluation_run.id", ondelete="RESTRICT"))
     state: Mapped[str] = mapped_column(String(16), server_default="queued")
+    retry_history: Mapped[list] = mapped_column(JSONB, server_default="[]")
     trigger: Mapped[str] = mapped_column(String(24))
     retry_count: Mapped[int] = mapped_column(server_default="0")
     report_sha256: Mapped[str] = mapped_column(String(64))
@@ -52,7 +53,7 @@ class ReportAnalysis(Record, Base):
     __table_args__ = (
         CheckConstraint("state IN ('queued','running','succeeded','failed','unresolved')"),
         CheckConstraint("trigger IN ('report_created','manual_start','manual_retry')"),
-        CheckConstraint("retry_count BETWEEN 0 AND 1"),
+        CheckConstraint("retry_count >= 0"),
         CheckConstraint("report_sha256 ~ '^[0-9a-f]{64}$'"),
         CheckConstraint("snapshot_sha256 ~ '^[0-9a-f]{64}$'"),
     )
@@ -343,17 +344,25 @@ async def enqueue_analysis(
 
 
 async def retry_existing_analysis(session, settings, job: ReportAnalysis):
-    """Requeue the sole analysis row once; never create another model-analysis identity."""
+    """Explicitly requeue failed or uncertain analysis, retaining prior attempt metadata."""
     locked = await session.scalar(
         select(ReportAnalysis).where(ReportAnalysis.id == job.id).with_for_update()
     )
     if locked is None:
         raise ValueError("Report analysis is missing")
-    if locked.state != "failed" or locked.retry_count != 0 or not analysis_is_configured(settings):
+    if locked.state not in {"failed", "unresolved"} or not analysis_is_configured(settings):
         return locked, False
+    locked.retry_history = [
+        *(locked.retry_history or []),
+        {
+            **analysis_data(locked),
+            "object_key": locked.object_key,
+            "input_object_key": locked.input_object_key,
+        },
+    ]
     locked.state = "queued"
     locked.trigger = "manual_retry"
-    locked.retry_count = 1
+    locked.retry_count += 1
     locked.started_at = None
     locked.finished_at = None
     locked.object_key = None
@@ -364,7 +373,7 @@ async def retry_existing_analysis(session, settings, job: ReportAnalysis):
         Outbox(
             run_id=locked.run_id,
             kind="ANALYZE_REPORT",
-            dedup_key=f"analysis:{locked.id}:manual-retry",
+            dedup_key=f"analysis:{locked.id}:manual-retry:{locked.retry_count}",
             payload={
                 "workflow_kind": "report_analysis",
                 "analysis_id": str(locked.id),
@@ -386,7 +395,7 @@ def analysis_data(job: ReportAnalysis, result: dict | None = None) -> dict:
         "state": job.state,
         "trigger": job.trigger,
         "retry_count": job.retry_count,
-        "created_at": job.created_at.isoformat(),
+        "created_at": job.created_at.isoformat() if job.created_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
         "report_sha256": job.report_sha256,
@@ -519,9 +528,7 @@ async def retry_analysis(report_id: uuid.UUID, request: Request):
                 raise HTTPException(409, "Analysis has not been queued")
             job, created = await retry_existing_analysis(session, settings, existing)
             if not created:
-                raise HTTPException(
-                    409, "Analysis is active, complete, or has already been retried"
-                )
+                raise HTTPException(409, "Analysis is active or complete")
             data = analysis_data(job)
     except SQLAlchemyError as exc:
         raise HTTPException(503, "Analysis database unavailable") from exc

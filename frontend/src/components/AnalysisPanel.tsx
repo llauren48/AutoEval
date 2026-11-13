@@ -38,6 +38,7 @@ export function AnalysisPanel({ reportId, status, executionOrigin, onStatus }: {
     return () => clearTimeout(timer);
   }, [analysis]);
   const queue = async (action: "start" | "retry") => {
+    if (action === "retry" && !window.confirm("重新分析将发起新的模型调用，可能产生费用。上次待查证的调用可能已计费，是否继续？")) return;
     setBusy(true); setMessage("");
     try {
       const row = await apiPost<Analysis>(`/reports/${reportId}/analysis:${action}`);
@@ -54,13 +55,13 @@ export function AnalysisPanel({ reportId, status, executionOrigin, onStatus }: {
   return <section className="analysis-panel" data-testid="analysis-status">
     <p className="muted">分析独立于测评执行。重试只重新分析已有证据，不重测、不修改原始报告；模型分析可能产生调用费用。</p>
     {status === "not_enabled" && <p>未配置独立分析目标与资源；原始报告不受影响。</p>}
-    {status === "not_queued" && <><p>分析尚未排队。</p><button disabled={busy} onClick={() => void queue("start")}>启动独立分析</button></>}
+    {status === "not_queued" && <><p>尚未启动智能分析，请点击按钮手动发起。</p><button disabled={busy} onClick={() => void queue("start")}>开始智能分析</button></>}
     {analysis && <div className="analysis-content">
       <p className="analysis-state">状态：{({ queued: "排队中", running: "分析中", succeeded: "分析成功", completed: "分析成功", failed: "分析失败", unresolved: "结果待查证" } as Record<string, string>)[analysis.state] || "待确认"}；重试次数：{analysis.retry_count}</p>
       {analysis.started_at && <p>开始：{new Date(analysis.started_at).toLocaleString("zh-CN")}；完成：{analysis.finished_at ? new Date(analysis.finished_at).toLocaleString("zh-CN") : "尚未完成"}</p>}
       {analysis.error_code && <p className="analysis-error" role="alert">错误类别：{analysis.error_code}</p>}
-      {analysis.state === "unresolved" && <p className="analysis-unresolved" role="alert">调用结果待查证，禁止重发分析请求。</p>}
-      {analysis.state === "failed" && analysis.retry_count === 0 && <button disabled={busy} onClick={() => void queue("retry")}>重试失败分析（仅一次）</button>}
+      {analysis.state === "unresolved" && <p className="analysis-unresolved" role="alert">上次调用结果待查证，可手动重新分析；原调用可能已产生费用。</p>}
+      {["failed", "unresolved"].includes(analysis.state) && <button disabled={busy} onClick={() => void queue("retry")}>重新分析</button>}
       {analysis.result?.analysis && <div data-testid="analysis-result">
         <section className="analysis-summary"><h4>分析摘要</h4><p>{analysis.result.analysis.summary}</p></section><div className="analysis-result-grid">
         {statements("报告事实", analysis.result.analysis.facts, "facts")}

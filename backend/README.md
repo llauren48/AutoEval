@@ -178,7 +178,7 @@ execution_origin由服务端运行环境冻结，默认real；模拟测试应用
 
 ## 独立分析与恢复
 
-仅`execution_origin=real`的普通测评报告可分析。配置AE_ANALYSIS_TARGET_ID和AE_ANALYSIS_RESOURCE_ID后，报告事务会创建分析意图；分析与被测的target绑定、模型版本、remote_model、credential_ref、resource绑定及实际Docker container必须全部不同，未满足条件时跳过自动分析，不影响原始报告归档。`GET /reports/{id}/analysis`查询结果；未排队报告通过`POST /reports/{id}/analysis:start`创建`manual_start`任务且`retry_count=0`，失败后才通过`POST /reports/{id}/analysis:retry`复用同一任务重试一次。分析输入对象、摘要和证据目录在进入`running`前完成冻结，模型引用只能使用服务端证据目录；重试不重测、不改报告。
+仅`execution_origin=real`的普通测评报告可分析。配置AE_ANALYSIS_TARGET_ID和AE_ANALYSIS_RESOURCE_ID后，仅开放手动分析能力，报告生成不自动创建分析意图；分析与被测的target绑定、模型版本、remote_model、credential_ref、resource绑定及实际Docker container必须全部不同，未满足条件时拒绝手动启动，不影响原始报告归档。`GET /reports/{id}/analysis`查询结果；未排队报告通过`POST /reports/{id}/analysis:start`创建`manual_start`任务且`retry_count=0`，失败或待查证后可通过`POST /reports/{id}/analysis:retry`复用同一任务手动重新分析，保留历史元数据；每次重新分析均可能产生新的模型费用。分析输入对象、摘要和证据目录在进入`running`前完成冻结，模型引用只能使用服务端证据目录；重试不重测、不改报告。
 
 启动`uv run python -m autoeval.worker analysis-workflow`、`uv run python -m autoeval.worker result`及dispatcher。该功能可能产生模型费用，普通回归测试使用明确的模拟边界。
 
@@ -210,7 +210,7 @@ SSHNativeTransport要求批准的工具路径、桥接hash和源码锁hash，远
 
 ## SSH归档后清理与恢复
 
-迁移0020新增execution_cleanup，独立于运行终态及报告有效性，状态为pending/running/failed/cleaned。报告、分析意图和清理意图同事务提交；SSH占用保留至全部已执行attempt的清理确认，Docker探索路径保持原行为。
+迁移0020新增execution_cleanup，独立于运行终态及报告有效性，状态为pending/running/failed/cleaned。报告和清理意图同事务提交，分析意图仅在手动启动时创建；SSH占用保留至全部已执行attempt的清理确认，Docker探索路径保持原行为。
 
 启动`uv run python -m autoeval.reconciler`，每60秒扫描同execution_origin的到期清理。后台先验证冻结快照、报告、全体case及数据集内容的对象摘要和身份，再核验远程请求/结果；删除前持久化verified_proofs，防止删除中断后无法继续。仅清理attempt UUID目录内本次创建的临时结果，保留提交摘要及清理回执，防止同一UUID重新执行。归档case和报告始终保留。
 

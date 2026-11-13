@@ -389,7 +389,7 @@ class RetrySession:
         pass
 
 
-async def test_failed_analysis_retries_same_job_at_most_once():
+async def test_failed_analysis_retries_preserve_history():
     settings = configured_settings()
     job = ReportAnalysis(
         id=uuid.uuid4(),
@@ -410,17 +410,19 @@ async def test_failed_analysis_retries_same_job_at_most_once():
     assert job.state == "queued" and job.retry_count == 1
     assert job.error_code is None
     assert len(session.added) == 1
-    assert session.added[0].dedup_key == f"analysis:{job.id}:manual-retry"
+    assert session.added[0].dedup_key == f"analysis:{job.id}:manual-retry:1"
     assert session.added[0].payload["retry_count"] == 1
 
     job.state = "failed"
     duplicate = RetrySession(job)
     same, created = await retry_existing_analysis(duplicate, settings, job)
-    assert same is job and created is False
-    assert duplicate.added == []
+    assert same is job and created is True
+    assert job.retry_count == 2
+    assert len(job.retry_history) == 2
+    assert duplicate.added[0].dedup_key.endswith(":2")
 
 
-async def test_unresolved_analysis_is_never_retried_blindly():
+async def test_unresolved_analysis_allows_explicit_reanalysis():
     settings = configured_settings()
     job = ReportAnalysis(
         id=uuid.uuid4(),
@@ -436,9 +438,9 @@ async def test_unresolved_analysis_is_never_retried_blindly():
     )
     session = RetrySession(job)
     same, created = await retry_existing_analysis(session, settings, job)
-    assert same is job and created is False
-    assert job.state == "unresolved" and job.retry_count == 0
-    assert session.added == []
+    assert same is job and created is True
+    assert job.state == "queued" and job.retry_count == 1
+    assert job.retry_history[0]["state"] == "unresolved"
 
 
 def test_nested_facts_and_inferences_use_the_same_evidence_allowlist():
@@ -570,6 +572,7 @@ async def test_activity_freezes_input_before_running(monkeypatch):
         report_id=uuid.uuid4(),
         run_id=uuid.uuid4(),
         state="queued",
+        retry_count=0,
         report_sha256="a" * 64,
         snapshot_sha256=snapshot_digest,
         baseline_comparison=None,

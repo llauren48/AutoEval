@@ -83,13 +83,17 @@ def build_analysis_result(
     }
 
 
-async def _mark_unresolved(sessions, analysis_id, error_code):
+async def _mark_unresolved(sessions, analysis_id, error_code, retry_count=0):
     try:
         async with sessions() as session, session.begin():
             job = await session.scalar(
                 select(ReportAnalysis).where(ReportAnalysis.id == analysis_id).with_for_update()
             )
-            if job is not None and job.state in {"queued", "running"}:
+            if (
+                job is not None
+                and job.retry_count == retry_count
+                and job.state in {"queued", "running"}
+            ):
                 job.state = "unresolved"
                 job.error_code = error_code
                 job.finished_at = utcnow()
@@ -99,7 +103,7 @@ async def _mark_unresolved(sessions, analysis_id, error_code):
 
 
 @activity.defn
-async def execute_report_analysis(analysis_id: str):
+async def execute_report_analysis(analysis_id: str, retry_count: int = 0):
     identifier = uuid.UUID(analysis_id)
     settings = get_settings()
     engine, sessions = create_database(settings)
@@ -110,6 +114,8 @@ async def execute_report_analysis(analysis_id: str):
             )
             if job is None:
                 return {"analysis_id": analysis_id, "state": "not_found"}
+            if job.retry_count != retry_count:
+                return _response(job.state, job, retry_sent=False)
             if job.state in {"succeeded", "failed", "unresolved"}:
                 return _response(job.state, job, retry_sent=False)
             if job.state != "queued":
@@ -190,6 +196,8 @@ async def execute_report_analysis(analysis_id: str):
             locked = await session.scalar(
                 select(ReportAnalysis).where(ReportAnalysis.id == identifier).with_for_update()
             )
+            if locked.retry_count != retry_count:
+                return _response(locked.state, locked, retry_sent=False)
             if locked.state == "running":
                 locked.state = "unresolved"
                 locked.error_code = "ANALYSIS_REDELIVERY_UNRESOLVED"
@@ -242,7 +250,11 @@ async def execute_report_analysis(analysis_id: str):
             locked = await session.scalar(
                 select(ReportAnalysis).where(ReportAnalysis.id == identifier).with_for_update()
             )
-            if locked.state != "running" or locked.input_sha256 != input_digest:
+            if (
+                locked.retry_count != retry_count
+                or locked.state != "running"
+                or locked.input_sha256 != input_digest
+            ):
                 return _response("unresolved", locked, retry_sent=False)
             locked.state = result_body["state"]
             locked.object_key = result_key
@@ -262,7 +274,7 @@ async def execute_report_analysis(analysis_id: str):
         SQLAlchemyError,
         subprocess.SubprocessError,
     ):
-        await _mark_unresolved(sessions, identifier, "ANALYSIS_EXECUTION_UNRESOLVED")
+        await _mark_unresolved(sessions, identifier, "ANALYSIS_EXECUTION_UNRESOLVED", retry_count)
         return {"analysis_id": analysis_id, "state": "unresolved", "retry_sent": False}
     finally:
         await engine.dispose()
