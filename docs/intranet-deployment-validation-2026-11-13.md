@@ -44,3 +44,14 @@ SSH端口转发被管理员策略拒绝；浏览器跨电脑端到端验证和�
 - 最终API及报告接口验证通过，7份真实报告、1份测试报告、0待派发意图、0测试报告入榜。保留外部访问、浏览器端到端、正式源端停写及最终增量核对为切换前置条件。
 
 最终收尾：本机异机副本11个文件校验通过。最后同步发布文档时SSH握手/会话被远端关闭，远端最终文档同步及临时验收登录文件清理尚未确认；本机交付文件完整。未因此修改端口或SSH配置，待连接稳定后补同步。
+
+
+## r3 升级发布（2026-11-13 晚）
+
+- 源码基线 `69cad8c`（含运行级输出上限回退、规划到入榜真机验收记录）。应用 wheel SHA-256 `dc11cf58…2b17`，前端 dist 包 `502f356e…72da`，迁移与工具锁包 `525f35c6…ae03`。
+- 复用既有离线 wheels 集（`backend/pyproject.toml`、`uv.lock` 自 2026-11-12 未变），替换应用 wheel 后重建 `SHA256SUMS` 并在构建中校验通过；新镜像 `sha256:14eafb53…187b`，基于固定 python 摘要，镜像内 `narrowing_absent` 且 `api_import_ok`。
+- 升级前备份 `releases/20261113/shared/backups/20261113T113720Z`（业务库、Temporal 两库、65 个对象、受保护配置）。
+- 新 release 目录 `releases/20261113-r3`，复用上一版本 `shared/secrets`、`shared/tls`、`shared/import`（符号链接，不复制凭据），`current` 已切换；`releases/20261113` 保留回滚。
+- 迁移由 `0029_analysis_manual_start` 升至 `0030_analysis_reanalysis`，容器内 `alembic current` 为 head。数据库、Temporal、对象存储容器未重建，业务数据卷未改动。
+- 验证：`/health/ready` 三项 ready；`demo.workflow.v1`、`demo.monitored.v1`（工作流与活动）、`demo.planning-execution.v1` 队列均有 poller；经网关 HTTPS 未认证接口返回 401、认证后网页与模型/标准输入/报告/运行接口返回 200；7 份历史报告的 `evidence_status` 与升级前一致（5 份 verified、2 份 missing），未补造缺失证据。
+- 未覆盖：服务器本身未发起真实模型调用或远程测评；外部 SSH 端口转发仍未放行；定时备份与告警仍未安装；正式源端停写与最终增量核对仍属切换前置条件。
