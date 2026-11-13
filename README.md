@@ -8,11 +8,11 @@ AutoEval 是单团队、单工作空间的模型测评平台，采用 React、Ty
 
 ## 当前开发状态
 
-更新日期：2026-11-12。当前为受控开发环境，正式身份接入、Release门禁及生产验收尚未完成。
+更新日期：2026-11-13。当前为受控开发环境，正式身份接入、Release门禁及生产验收尚未完成。
 
 - **真实GPQA Lite闭环**：网页提交 → Outbox/Temporal → SSH/容器内AISBench → SFTP与对象归档 → Case → 报告 → 评审入榜已验证。最新5样本任务准确率 **80%（4/5）**，恰好5次调用，证据及清理状态已核对；不代表198样本全量效果。
 - **输出预算**：远程AISBench监控路径显式支持每条最多 **2048输出tokens**；其他兼容探索入口仍限64。每次最多5个样本、串行、无预热、不自动重测；旧快照继续按原冻结预算执行。
-- **执行进度**：提交与排队、环境准备、测评执行、结果归档、任务完成五阶段；等待时显示动态等待条与每秒更新的任务耗时，终态固定总耗时。样本计数未知时不虚构百分比。
+- **执行进度**：提交与排队、环境准备、测评执行、结果归档、任务完成五阶段；等待时显示当前阶段动画与每秒更新的任务耗时，终态固定总耗时。样本计数未知时不虚构百分比。
 - **Case与报告**：保留每次尝试、工具时间与Token；新CLI路径从经校验的原生预测文件关联模型输入/响应，保留原证据哈希。执行成功、评分和证据完整性分别展示；两份更早的缺失证据报告仍仅保留历史索引。
 - **已评审榜单**：同模型ID、同配置及可比条件默认取最优，同分取最近；可切换全部成绩。不同样本、工具版本与参数分开。已按用户要求撤下两组旧64-token成绩，当前该模型GPQA榜单保留80%记录；原报告与审计不删除。官方公开成绩保留来源，不代表平台复现。
 - **标准仓与适配器**：标准输入版本化、来源与锁定参数、配置编译、统一输出及证据归档已接入；只有已验证的GPQA路径开放真实执行，MMMU-Pro、DeepSWE和Harbor真实执行分别验收。
@@ -23,7 +23,7 @@ AutoEval 是单团队、单工作空间的模型测评平台，采用 React、Ty
 | API / Dispatcher / Workflow与活动Worker | 仅启动API不会执行测评；按下面步骤及后台说明启动对应角色 |
 | 监控Worker | `uv run python -m autoeval.worker monitored`；固定AISBench `698ff2d`、Adaptor `955089a`及补丁摘要；仅容器内127.0.0.1监听 |
 | 规划Worker / 通用执行Worker | `uv run python -m autoeval.planning_worker` / `uv run python -m autoeval.worker planning-execution`；环境需固定Planner与工具版本 |
-| 数据库 / 对象存储 | 迁移当前至 `0027_task_planning`；证据使用持久化S3，Temporal与业务数据库隔离 |
+| 数据库 / 对象存储 | 本轮已提交迁移至 `0028_config_no_approval`，部署时执行 `alembic upgrade head`；证据使用持久化S3，Temporal与业务数据库隔离 |
 | 分析 / 性能 / 极光 | 分析需独立目标和预算；性能成绩及极光真实接入未验收，不能以Token或总耗时替代性能成绩 |
 
 接入、验证与恢复记录：
@@ -33,13 +33,34 @@ AutoEval 是单团队、单工作空间的模型测评平台，采用 React、Ty
 - [标准仓输入](./docs/standard-inputs.md)、[统一输出接入](./docs/unified-output-integration.md)、[任务规划与编排](./docs/task-planning.md)
 - [无模型归档验证](./docs/platform-fixture-validation-2026-11-12.md)、[持久化存储与恢复](./docs/development-recovery.md)
 
+## 2026-11-13 配置与规划更新
+
+- **直接测评为默认路径**：不启动探测、不选择吞吐曲线、不生成估时结果，也可在参数、服务及执行资源预检通过并确认范围后提交。后台冻结当前参数与样本范围，不自动修改并发、不调用 Planner 估算；无依据时显示“暂无可靠估算”。优化编排与采纳方案都是可选操作。
+- **标准仓列表**：支持版本、模型、数据集组合筛选，后端筛选后分页；默认显示最近导入记录所属的完整提交，可切换全部或历史版本。模型身份忽略大小写匹配，歧义需显式选择；官方目录可登记模型身份，但不自动建立 API 服务。
+- **配置边界**：标准仓启动配置以 `benchmark_config.json` 为准，`standard_config.json` 提供锁定字段；当前页面不补造缺少的启动文件。标准配置完整性与服务、执行环境分别检查，旧快照保留追溯。配置审批已取消，结果入榜评审保持独立。
+- **服务器容器 Planner**：客户 SSH 路径显式绑定容器与镜像 ID，在独立内容哈希目录部署固定 Planner `0ee9abf49a57c5accc62df8900693cdcea88ea9a`；计算和探测在容器内运行，平台进程只协调状态及归档，不回退到 SSH 宿主机。
+- **探测进度**：新任务支持阶段、真实完成档位、当前并发、累计耗时、任务 ID 及过期提示。采集异常不重发模型请求，历史未采集数据不补造。
+- **真实验收**：DeepSeek 容器探测的并发 1/2/4/8 档均返回有效数据，错误率均为0；对象哈希读回及清理完成。该验证不等同于时长预测误差、全量测评或三基准闭环验收。见[真实探测记录](docs/planner-real-acceptance-2026-11-13.md)。
+
+在 `backend/.env` 中将 `AE_PLANNING_CONTAINER_CONFIG` 指向受保护 JSON，格式为资源 UUID 到 `{ "container_id": "完整容器ID", "image_id": "完整镜像ID" }` 的映射。文件不提交；缺少绑定会阻断，不猜测容器。
+
+```powershell
+# 在 backend/ 目录，分别启动协调与执行进程
+uv run python -m autoeval.planning_worker
+uv run python -m autoeval.worker planning-execution
+```
+
+规划协调进程默认只处理 `preflight,plan`，**不会消费排队中的探测**。真实探测需先核对历史待办和预算，再显式设置 `AE_PLANNING_JOB_KINDS=preflight,plan,probe`；启用后会消费待办，不能盲目开启。修改配置或升级代码后需重新加载 API、规划协调及相关 Worker。无模型回归不会为展示进度发起付费调用。
+
+本轮相关后端回归22项通过、2项跳过，浏览器模拟验证覆盖无吞吐曲线提交和2/4档进度；类型检查、构建及相关Ruff检查通过。真实吞吐探测与模拟界面验证分别记录，不作为预测准确性承诺。
+
 ## 配置与数据集目录更新
 
 - 标准配置与自定义配置为同级入口。参数采用中文名称、原始键名与 ⓘ 解释，使用紧凑分组布局；原文和来源信息折叠查看。
 - 自定义配置可从同一基准的标准模板补齐 `tool/subcommand/params`，完整嵌套参数随新版本保存。旧版参数保持兼容；完整适配器配置尚未开放探索执行，后端明确阻断。
 - 模型列表纳入标准仓来源模型，仅精确且唯一匹配时合并。数据集列表、添加数据集及模板选择共用已登记的 AISBench 标准目录，不将参考成绩自动视为可执行数据集。
 - `AutomationBench` 已登记为待核验身份，不等同 DeepSWE；工具支持、数据版本和样本清单未验证，不进入可添加的 AISBench 目录。其他环境可执行 `uv run python -m autoeval.register_automationbench` 幂等登记。
-- GitHub 同步使用系统可信 CA，保留 HTTPS 校验；网络请求与内容校验失败分别提示。同步不会自动批准配置或启动测评。
+- GitHub 同步使用系统可信 CA，保留 HTTPS 校验；网络请求与内容校验失败分别提示。标准仓与自定义配置均无需配置审批；同步不会启动测评。
 
 ## 本机启动
 
@@ -60,7 +81,7 @@ docs/      开发计划、接入说明、验收与恢复记录
 
 ```powershell
 docker volume create autoeval-evidence-persistent
-docker compose --env-file backend/.env -fdeploy/compose.storage-durable.yaml up -d
+docker compose --env-file backend/.env -f deploy/compose.storage-durable.yaml up -d
 ```
 
 开发存储使用固定摘要的 GHCR 社区 MinIO 备份镜像，主机端点为 `http://127.0.0.1:9002`，独立持久卷为 `autoeval-evidence-persistent`。来源、版本及回退步骤见恢复指南；不视为官方签名或生产安全验收。原基础 Compose 的 Moto 仅供协议测试。
