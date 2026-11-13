@@ -42,7 +42,7 @@ python -m pip install 'git+https://github.com/SJTUyh/AutoEval-Benchmark-Adaptor@
 2. 登记全量/Lite 清单与 Profile。每个编译配置只允许一个数据集；一个父任务最多包含三个不同数据集。
 3. 选择配置及清单，执行资源预检，选择已有吞吐曲线或启动探测。
 4. 计算当前配置耗时，或搜索更优顺序及并发。检查各数据集的单独耗时、计划内耗时和代表性时间线后采纳；采纳后使用后端返回的执行方案报告刷新预计耗时。
-5. 确认范围及真实调用费用后提交。修改目标、资源、配置、范围或调度参数会清除旧计划与采纳状态。
+5. 确认范围及真实调用费用后点击“提交测评”。预检仅是环境检查，不创建运行、不调用模型；只有该按钮会创建任务并跳转到“任务管理 → 测评任务详情”，编排视图仅保留编排记录。修改目标、资源、配置、范围或调度参数会清除旧计划与采纳状态。
 
 探测默认档位 1、2、4、8，每档至少 max(档位, 2) 个请求，输入及最大输出均为 512 token。预算包含一次整档非流式回退，默认最多 32 次请求、16,384 个输出 token。禁用自动 HTTP 重试，拒绝重定向，保持 TLS 校验。探测在实际执行环境发起，密钥仅通过运行时受保护文件注入并在结束/取消时删除。失败仅保存白名单原因码，区分超时、协议不兼容、鉴权失败、限流、连接失败和取消，不持久化上游异常文本。
 
@@ -66,6 +66,8 @@ python -m pip install 'git+https://github.com/SJTUyh/AutoEval-Benchmark-Adaptor@
 | POST /runs | 按当前配置手工提交，无曲线时也允许，但仍须通过执行预检 |
 | GET /runs、GET /runs/{id} | 分页运行列表、子任务实际耗时及归档报告 |
 | POST /runs/{id}/cancel | 取消父任务和全部未结束子任务 |
+
+规划提交的测评同时出现在任务管理接口 `GET /api/autoeval/v1/runs` 与 `GET /api/autoeval/v1/runs/{id}` 中，详情返回冻结快照的样本数、运行状态、事件与报告入口；编排视图的 `/planning/runs` 保持不变。
 
 PlanInput：target_id、resource_id、resource_kind（docker_local/customer_ssh）、可选 throughput_profile_id、tasks（task_id/compilation_id/manifest_id/dataset）、dataset_concurrency、recommend、runs、seed。模拟默认 100 次、吞吐抖动 0.10、种子 20261111。数据集范围及 attempts 来自编译配置与冻结清单。
 
