@@ -369,6 +369,18 @@ svg {
 .tabs button:hover {
   background: #f8f6ff;
 }
+.report-view-tabs {
+  margin-top: 14px;
+}
+.report-view-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.report-analysis-view {
+  display: grid;
+  gap: 12px;
+}
 .console-grid {
   display: grid;
   grid-template-columns: minmax(0, 2.3fr) minmax(280px, 1fr);
@@ -2553,6 +2565,35 @@ td small .badge,
   display: block;
   margin-top: 7px;
 }
+.report-quick-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8f9fd;
+}
+.report-quick-links > a,
+.report-quick-links > button {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--primary);
+  text-decoration: none;
+}
+.report-quick-links > a:hover,
+.report-quick-links > button:hover {
+  background: #f2efff;
+  border-color: #d9d2ff;
+}
 .report-analysis-summary {
   background: #f7f5ff;
   padding: 13px 16px;
@@ -2668,13 +2709,14 @@ td small .badge,
   text-align: right;
 }
 .report-local-analysis {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
   border-top: 1px solid var(--border);
   padding-top: 18px;
   font-size: 13px;
-}
-.report-local-analysis p {
   color: #68708a;
-  line-height: 1.8;
 }
 .report-dataset-result .filters select {
   flex: none;

@@ -16,7 +16,7 @@ type Analysis = {
   };
 };
 
-export function AnalysisPanel({ reportId, status, onStatus }: { reportId: string; status: string; onStatus: (state: string) => void }) {
+export function AnalysisPanel({ reportId, status, executionOrigin, onStatus }: { reportId: string; status: string; executionOrigin: string; onStatus: (state: string) => void }) {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [revision, setRevision] = useState(0);
   const [message, setMessage] = useState("");
@@ -25,38 +25,41 @@ export function AnalysisPanel({ reportId, status, onStatus }: { reportId: string
     setAnalysis(null); setMessage("");
   }, [reportId]);
   useEffect(() => {
-    if (["not_enabled", "not_queued"].includes(status)) return;
+    if (executionOrigin !== "real" || ["not_enabled", "not_queued"].includes(status)) return;
     const controller = new AbortController();
     apiGet<Analysis>(`/reports/${reportId}/analysis`, controller.signal).then((row) => {
       setAnalysis(row); onStatus(row.state);
     }).catch(() => { if (!controller.signal.aborted) setMessage("分析结果或校验值读取失败；原始报告不受影响。"); });
     return () => controller.abort();
-  }, [reportId, status, revision]);
+  }, [reportId, status, executionOrigin, revision]);
   useEffect(() => {
     if (!analysis || !["queued", "running"].includes(analysis.state)) return;
     const timer = setTimeout(() => setRevision((value) => value + 1), 2000);
     return () => clearTimeout(timer);
   }, [analysis]);
-  const retry = async () => {
+  const queue = async (action: "start" | "retry") => {
     setBusy(true); setMessage("");
     try {
-      const row = await apiPost<Analysis>(`/reports/${reportId}/analysis:retry`);
+      const row = await apiPost<Analysis>(`/reports/${reportId}/analysis:${action}`);
       setAnalysis(row); onStatus(row.state); setRevision((value) => value + 1);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "分析未排队；请先查证当前状态。");
     } finally { setBusy(false); }
   };
+  if (executionOrigin !== "real") {
+    return <section data-testid="analysis-status"><h3>智能分析</h3><p>非真实执行来源，不启用智能分析；原始报告不受影响。</p></section>;
+  }
   const statements = (title: string, rows: Statement[]) => <div><h4>{title}</h4>{rows.length ? <ul>{rows.map((row, index) => <li key={index}>{row.statement}<details><summary>证据引用</summary><code>{row.evidence_ids.join("、") || "证据不足"}</code></details></li>)}</ul> : <p>无</p>}</div>;
   return <section data-testid="analysis-status">
-    <h3>自动分析</h3><p className="muted">分析独立于测评执行。重试只重新分析已有证据，不重测、不修改原始报告；模型分析可能产生调用费用。</p>
+    <h3>智能分析</h3><p className="muted">分析独立于测评执行。重试只重新分析已有证据，不重测、不修改原始报告；模型分析可能产生调用费用。</p>
     {status === "not_enabled" && <p>未配置独立分析目标与资源；原始报告不受影响。</p>}
-    {status === "not_queued" && <><p>分析尚未排队。</p><button disabled={busy} onClick={() => void retry()}>启动独立分析</button></>}
+    {status === "not_queued" && <><p>分析尚未排队。</p><button disabled={busy} onClick={() => void queue("start")}>启动独立分析</button></>}
     {analysis && <div>
       <p>状态：{({ queued: "排队中", running: "分析中", succeeded: "分析成功", completed: "分析成功", failed: "分析失败", unresolved: "结果待查证" } as Record<string, string>)[analysis.state] || "待确认"}；重试次数：{analysis.retry_count}</p>
       {analysis.started_at && <p>开始：{new Date(analysis.started_at).toLocaleString("zh-CN")}；完成：{analysis.finished_at ? new Date(analysis.finished_at).toLocaleString("zh-CN") : "尚未完成"}</p>}
       {analysis.error_code && <p role="alert">错误类别：{analysis.error_code}</p>}
       {analysis.state === "unresolved" && <p role="alert">调用结果待查证，禁止重发分析请求。</p>}
-      {analysis.state === "failed" && analysis.retry_count === 0 && <button disabled={busy} onClick={() => void retry()}>重试失败分析（仅一次）</button>}
+      {analysis.state === "failed" && analysis.retry_count === 0 && <button disabled={busy} onClick={() => void queue("retry")}>重试失败分析（仅一次）</button>}
       {analysis.result?.analysis && <div data-testid="analysis-result">
         <p>{analysis.result.analysis.summary}</p>
         {statements("报告事实", analysis.result.analysis.facts)}

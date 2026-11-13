@@ -16,8 +16,10 @@ def test_unified_token_coverage_and_unknown_values(browser_page):
         : original(url, options);
     })()""")
     page.goto(url + "/#report/chart-fixture")
-    expect(page.get_by_role("heading", name="统一输出覆盖情况")).to_be_visible()
-    section = page.locator("section").filter(has=page.get_by_role("heading", name="统一输出覆盖情况")).last
-    expect(section).to_contain_text("输入已知合计：—")
-    expect(section).to_contain_text("输出已知合计：0")
-    expect(section).to_contain_text("缺测 1 个")
+    expect(page.get_by_role("heading", name="统一输出覆盖情况")).to_have_count(0)
+    page.get_by_role("button", name="查看结果", exact=True).click()
+    page.get_by_role("button", name="样本明细", exact=True).click()
+    summary = page.locator(".unified-summary")
+    expect(summary).to_contain_text("覆盖 2 / 3 个 case")
+    expect(summary).to_contain_text("缺测 1")
+    expect(summary).to_contain_text("输入 — / 输出 0")

@@ -49,6 +49,9 @@ def test_real_fixture_frontend_submission_and_report(browser_page):
             "人工测试产物流程验证报告；不代表真实模型成绩，不参与榜单或正式发布门禁。", exact=True
         )
     ).to_be_visible()
+    expect(page.get_by_role("heading", name="统一输出覆盖情况")).to_have_count(0)
+    page.get_by_role("button", name="查看结果", exact=True).click()
+    page.get_by_role("button", name="样本明细", exact=True).click()
     expect(page.get_by_role("heading", name="统一输出覆盖情况")).to_be_visible()
     page.screenshot(path=str(artifacts / "fixture-report-e2e.png"), full_page=True)
     (artifacts / "fixture-e2e-identifiers.txt").write_text(

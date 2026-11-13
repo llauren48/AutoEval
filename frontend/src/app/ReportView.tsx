@@ -1,7 +1,6 @@
 import { type DatasetChartResult, ReportCharts } from "../components/ReportCharts";
 import { CopyIdentifier } from "../components/CopyIdentifier";
 import { CaseHistory } from "../components/CaseHistory";
-import { UnifiedOutputSummary } from "../components/UnifiedOutputSummary";
 import { ManagementDrawer } from "../components/ManagementDrawer";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -58,6 +57,16 @@ const validityLabels: Record<string, string> = {
   invalid: "评分无效",
 };
 
+const analysisLabels: Record<string, string> = {
+  not_enabled: "未启用",
+  not_queued: "待排队",
+  queued: "排队中",
+  running: "分析中",
+  succeeded: "分析成功",
+  failed: "分析失败",
+  unresolved: "待查证",
+};
+
 function accuracyText(value: number | null) {
   return value === null ? "—" : `${value}%`;
 }
@@ -76,6 +85,7 @@ export function ReportView({ id, go }: { id: string; go: (path: string) => void 
   const [reload, setReload] = useState(0);
   const [report, setReport] = useState<Report | null>(null);
   const [datasetOpen, setDatasetOpen] = useState(false);
+  const [view, setView] = useState("总览");
   const [tab, setTab] = useState("结果分析");
   const [message, setMessage] = useState("");
   const [evidence, setEvidence] = useState<unknown>(null);
@@ -85,6 +95,7 @@ export function ReportView({ id, go }: { id: string; go: (path: string) => void 
   useEffect(() => {
     const controller = new AbortController();
     setDatasetOpen(false);
+    setView("总览");
     setReport(null);
     setMessage("");
     setTab("结果分析");
@@ -186,12 +197,31 @@ export function ReportView({ id, go }: { id: string; go: (path: string) => void 
             {validityLabels[report.validity] || "待确认"}
           </span>
         </div>
+        <div className="tabs report-view-tabs" role="tablist" aria-label="报告视图">
+          {["总览", "智能分析"].map((name) => (
+            <button
+              key={name}
+              role="tab"
+              aria-selected={view === name}
+              className={view === name ? "active" : ""}
+              onClick={() => setView(name)}
+            >
+              {name}
+              {name === "智能分析" && (
+                <span className={`badge ${report.analysis_status === "succeeded" ? "green" : ["failed", "unresolved"].includes(report.analysis_status) ? "orange" : "neutral"}`}>
+                  {analysisLabels[report.analysis_status] || "待确认"}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        {view === "总览" && <>
         <div className="execution-meta">
           <span>模型 <b>{report.remote_model}</b></span>
           <span>生成时间 <b>{new Date(report.created_at).toLocaleString("zh-CN")}</b></span>
           <span>运行方式 <b>串行 · 探索</b></span>
           <span>范围 <b>Lite</b></span>
-          <span>发布门禁 <b>不适用</b></span><span>分析状态 <b>{({ not_enabled:"未启用", not_queued:"待排队", queued:"排队中", running:"分析中", succeeded:"分析成功", failed:"分析失败", unresolved:"待查证" } as Record<string,string>)[report.analysis_status] || "待确认"}</b></span>
+          <span>发布门禁 <b>不适用</b></span><span>分析状态 <b>{analysisLabels[report.analysis_status] || "待确认"}</b></span>
         </div>
         <div className="report-summary-stats table-wrap">
           {stats.map(([label, value]) => (
@@ -209,29 +239,31 @@ export function ReportView({ id, go }: { id: string; go: (path: string) => void 
         <div className="notice">
           当前清单 {summary.expected_samples} 个样本 / 数据集 {summary.dataset_samples} 个样本；本报告不代表全量成绩。执行完成不代表报告有效，成绩须结合证据完整性判断。
         </div>
-        <p>
-          <a className="link" href={`#run/${report.run_id}`}>
-            查看来源任务与case历史
+        <div className="report-quick-links">
+          <a className="report-quick-link" href={`#run/${report.run_id}`}>
+            查看来源任务与 Case 历史
           </a>
-        </p>
-        <ManagementDrawer title="报告标识与校验值"><details open className="report-analysis-summary">
-          <summary>报告标识与校验值</summary>
-          <div className="table-wrap">
-            <table>
-              <tbody>
-                <tr><th>报告 ID</th><td>{report.id} <CopyIdentifier value={report.id} /></td></tr>
-                <tr><th>报告 sha256</th><td>{report.sha256}</td></tr>
-                <tr><th>快照 sha256</th><td>{report.snapshot_sha256}</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </details></ManagementDrawer>
-        <details className="report-analysis-summary"><summary>关键结论与自动分析</summary><p>{report.evidence_status !== "verified" ? "原始证据不可用，当前无法确认有效成绩或生成可信比较结论。" : "本次为所选 Lite 清单的探索结果，不代表全量成绩，不适用正式发布门禁。"}</p><AnalysisPanel reportId={report.id} status={report.analysis_status} onStatus={(state) => setReport((current) => current ? { ...current, analysis_status: state } : current)} /></details>
+          <ManagementDrawer title="报告标识与校验值">
+            <div className="table-wrap">
+              <table>
+                <tbody>
+                  <tr><th>报告 ID</th><td>{report.id} <CopyIdentifier value={report.id} /></td></tr>
+                  <tr><th>报告 sha256</th><td>{report.sha256}</td></tr>
+                  <tr><th>快照 sha256</th><td>{report.snapshot_sha256}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </ManagementDrawer>
+        </div>
         <ReportCharts report={report} />
         {report.execution_origin === "simulation" && <p className="notice">人工测试产物流程验证报告；不代表真实模型成绩，不参与榜单或正式发布门禁。</p>}
-        <UnifiedOutputSummary runId={report.run_id} />
         <h3>数据集结果</h3>
         <div className="table-wrap"><table><thead><tr><th>数据集</th><th>类型</th><th>覆盖</th><th>核心指标</th><th>指标值</th><th>基准差异</th><th>操作</th></tr></thead><tbody><tr><td>GPQA</td><td>科学问答</td><td>{summary.successful_samples}/{summary.expected_samples} · {validityLabels[report.validity]}</td><td>准确率</td><td>{accuracyText(summary.accuracy)}</td><td>{report.evidence_status !== "verified" ? "证据不可用" : baseline.status === "missing" ? "暂无基准" : baseline.status === "incomparable" ? "不可直接比较" : difference}</td><td><button className="link" onClick={() => setDatasetOpen(true)}>查看结果</button></td></tr></tbody></table></div>
+        </>}
+        {view === "智能分析" && <section className="report-analysis-view">
+          <p className="muted">{report.evidence_status !== "verified" ? "原始证据不可用，当前无法确认有效成绩或生成可信比较结论。" : "本次为所选 Lite 清单的探索结果，不代表全量成绩，不适用正式发布门禁。"}</p>
+          <AnalysisPanel reportId={report.id} status={report.analysis_status} executionOrigin={report.execution_origin} onStatus={(state) => setReport((current) => current ? { ...current, analysis_status: state } : current)} />
+        </section>}
       </section>}
 
       {datasetOpen && <section className="card stack report-dataset-result restored-detail">
@@ -312,17 +344,10 @@ export function ReportView({ id, go }: { id: string; go: (path: string) => void 
               </div>
             </div>
 
-            <section className="report-local-analysis">
-              <AnalysisPanel
-                reportId={report.id}
-                status={report.analysis_status}
-                onStatus={(state) =>
-                  setReport((current) =>
-                    current ? { ...current, analysis_status: state } : current,
-                  )
-                }
-              />
-            </section>
+            <p className="muted report-local-analysis">
+              智能分析已独立为报告级页签。
+              <button className="link" onClick={() => { setDatasetOpen(false); setView("智能分析"); }}>前往智能分析</button>
+            </p>
           </>
         ) : tab === "样本明细" ? <CaseHistory initialRun={report.run_id} /> : (
           <section>

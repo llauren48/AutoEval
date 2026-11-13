@@ -25,6 +25,7 @@ uv run pytest -q tests/browser_checks
 | --- | --- | --- |
 | Preflight | Mock JavaScript fixture | Failed resource blocks submission, explicit confirmation, changed selection invalidates |
 | Report charts | Mock JavaScript fixture | Matched baseline, genuine zero, missing baseline, partial coverage, unavailable evidence |
+| Report analysis | Mock JavaScript fixture | Independent start route, all Demo state labels, and no start action for non-real reports |
 | Detail navigation | Read-only local API | Discover a report, task overview/dataset/cases/snapshot, report drilldown and return |
 | Workbench | Read-only local API | Dev menu, input form, unavailable evidence blocks nomination, import template, diagnostics and board |
 | Standard inputs | Intercepted API fixtures | Preview, differences, import, model/target mapping, compilation drawer, stale-result invalidation; no real writes |
@@ -33,7 +34,8 @@ Both flags default to off; report navigation skips if no report exists. It never
 an evaluation to populate data. The live workbench check requires a development frontend.
 Browser requests outside the configured local origin and all real write requests are blocked.
 A blocked write fails teardown. API GET discovery also uses that local origin. No approve,
-import, diagnostic submission, model generation, or analysis retry button is clicked.
+import, diagnostic submission, model generation, or real analysis start/retry request is made.
+Mocked analysis checks may click start only when the JavaScript fixture intercepts the request.
 
 Screenshots (including failure state) go to `.screenshots/browser-checks/` in the repository
 root, or `AE_BROWSER_ARTIFACT_DIR`. Browser profiles are ephemeral. Generated screenshots,

@@ -55,7 +55,7 @@ export function RealReports({ reportId, open }: { reportId?: string; open: (id: 
     );
   }
 
-  const analysisLabel = (value: string) => ({ completed: "分析成功", succeeded: "分析成功", failed: "分析失败", pending: "待分析", running: "分析中", not_requested: "未分析" }[value] || "暂无分析");
+  const analysisLabel = (value: string) => ({ completed: "分析成功", succeeded: "分析成功", failed: "分析失败", pending: "待分析", queued: "排队中", running: "分析中", not_enabled: "未启用", not_queued: "待排队", unresolved: "待查证", not_requested: "未分析" }[value] || "暂无分析");
   const filteredRows = rows.filter((row) => (!model || row.remote_model === model) && (!analysis || row.analysis_status === analysis) && `${row.id} ${row.run_id} ${row.remote_model}`.toLowerCase().includes(query.toLowerCase()));
   return (
     <div className="stack" data-testid="real-report-catalog">
