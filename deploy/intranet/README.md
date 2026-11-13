@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-已部署到179.214.2.3，项目名autoeval-platform。入口仅绑定127.0.0.1:18443。服务端部署、认证、有效数据迁移、无模型闭环、重启及恢复验证通过；外部访问和浏览器端到端验收等待管理员允许SSH端口转发。未开放公网、未进行本轮真实模型测评。
+已部署到179.214.2.3，项目名autoeval-platform。入口仅绑定127.0.0.1:18443。服务端部署、认证、有效数据迁移、无模型闭环、重启及恢复验证通过；外部访问和浏览器端到端验收等待管理员允许SSH端口转发。未开放公网。开发主机已完成本轮真实模型测评（见[规划到入榜真机验收](../docs/planning-live-acceptance-2026-11-13.md)），服务器本身未发起模型调用。
 
-发布目录：`/home/chenluwen/autoeval-platform/releases/20261113`，`/home/chenluwen/autoeval-platform/current` 指向该版本。Compose1.29.2，Docker18.09。后台使用离线wheel镜像构建，依赖文件SHA256SUMS已在构建时验证，镜像摘要见image-lock.json。安装为wheel后通过镜像内兼容链接提供工具锁文件。
+发布目录：`/home/chenluwen/autoeval-platform/releases/20261113-r3`，`/home/chenluwen/autoeval-platform/current` 指向该版本；上一版本 `releases/20261113` 保留用于回滚。Compose1.29.2，Docker18.09。后台使用离线wheel镜像构建，依赖文件SHA256SUMS已在构建时验证，镜像摘要见image-lock.json。安装为wheel后通过镜像内兼容链接提供工具锁文件。本次升级前备份位于 `releases/20261113/shared/backups/20261113T113720Z`，数据库迁移已由 `0029_analysis_manual_start` 升至 `0030_analysis_reanalysis`。
 
 ## 服务与网络
 

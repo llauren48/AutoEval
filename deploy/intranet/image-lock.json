@@ -4,5 +4,5 @@
   "temporal": "docker.m.daocloud.io/temporalio/auto-setup@sha256:b44cbfeb43dbeae42db113b44fb8414c3452f05643b3d6b1592f955277d73526",
   "python": "docker.1ms.run/library/python@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
   "storage": "docker.m.daocloud.io/bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c",
-  "backend": "sha256:6d3f094cf4b3f4b934cafd861505b1468bd124ddafeca95d99f0497d8b25f059"
+  "backend": "sha256:14eafb5379c53f2523a08809229a9c914b0a13a35adb201b682d3801618f187b"
 }

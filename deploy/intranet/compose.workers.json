@@ -2,7 +2,7 @@
   "version": "3.7",
   "services": {
     "dispatcher": {
-      "image": "sha256:6d3f094cf4b3f4b934cafd861505b1468bd124ddafeca95d99f0497d8b25f059",
+      "image": "sha256:14eafb5379c53f2523a08809229a9c914b0a13a35adb201b682d3801618f187b",
       "restart": "unless-stopped",
       "env_file": [
         "./shared/backend.env"
@@ -32,7 +32,7 @@
       ]
     },
     "workflow": {
-      "image": "sha256:6d3f094cf4b3f4b934cafd861505b1468bd124ddafeca95d99f0497d8b25f059",
+      "image": "sha256:14eafb5379c53f2523a08809229a9c914b0a13a35adb201b682d3801618f187b",
       "restart": "unless-stopped",
       "env_file": [
         "./shared/backend.env"
@@ -63,7 +63,7 @@
       ]
     },
     "monitored": {
-      "image": "sha256:6d3f094cf4b3f4b934cafd861505b1468bd124ddafeca95d99f0497d8b25f059",
+      "image": "sha256:14eafb5379c53f2523a08809229a9c914b0a13a35adb201b682d3801618f187b",
       "restart": "unless-stopped",
       "env_file": [
         "./shared/backend.env"
@@ -94,7 +94,7 @@
       ]
     },
     "planning": {
-      "image": "sha256:6d3f094cf4b3f4b934cafd861505b1468bd124ddafeca95d99f0497d8b25f059",
+      "image": "sha256:14eafb5379c53f2523a08809229a9c914b0a13a35adb201b682d3801618f187b",
       "restart": "unless-stopped",
       "env_file": [
         "./shared/backend.env"
@@ -124,7 +124,7 @@
       ]
     },
     "planning-execution": {
-      "image": "sha256:6d3f094cf4b3f4b934cafd861505b1468bd124ddafeca95d99f0497d8b25f059",
+      "image": "sha256:14eafb5379c53f2523a08809229a9c914b0a13a35adb201b682d3801618f187b",
       "restart": "unless-stopped",
       "env_file": [
         "./shared/backend.env"
@@ -155,7 +155,7 @@
       ]
     },
     "reconciler": {
-      "image": "sha256:6d3f094cf4b3f4b934cafd861505b1468bd124ddafeca95d99f0497d8b25f059",
+      "image": "sha256:14eafb5379c53f2523a08809229a9c914b0a13a35adb201b682d3801618f187b",
       "restart": "unless-stopped",
       "env_file": [
         "./shared/backend.env"
