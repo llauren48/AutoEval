@@ -67,9 +67,7 @@ python -m pip install 'git+https://github.com/SJTUyh/AutoEval-Benchmark-Adaptor@
 | GET /runs、GET /runs/{id} | 分页运行列表、子任务实际耗时及归档报告 |
 | POST /runs/{id}/cancel | 取消父任务和全部未结束子任务 |
 
-PlanInput：target_id、resource_id、resource_kind（docker_local/customer_ssh）、可选 throughput_profile_id、tasks（task_id/compilation_id/manifest_id/dataset）、dataset_concurrency、recommend、runs、seed、可选 output_token_limit。模拟默认 100 次、吞吐抖动 0.10、种子 20261111。数据集范围及 attempts 来自编译配置与冻结清单。
-
-`output_token_limit` 只用于向下收窄本次运行的每样本输出预算：超过编译配置中的 `max_out_len` 返回 422，收窄值写入任务自身锁定字段、预检身份与冻结快照，不修改标准输入、编译版本或历史任务；仅适用于 `llm_accuracy`，Harbor 路径拒绝。改变该值会使既有预检与规划失效。
+PlanInput：target_id、resource_id、resource_kind（docker_local/customer_ssh）、可选 throughput_profile_id、tasks（task_id/compilation_id/manifest_id/dataset）、dataset_concurrency、recommend、runs、seed。模拟默认 100 次、吞吐抖动 0.10、种子 20261111。数据集范围及 attempts 来自编译配置与冻结清单。
 
 ## 证据、恢复与口径
 

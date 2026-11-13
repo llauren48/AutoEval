@@ -85,8 +85,6 @@ class PlanInput(ResourceRef):
     recommend: bool = True
     runs: int = Field(default=100, ge=1, le=100)
     seed: int = Field(default=20261111, ge=0, le=2147483647)
-    # Optional per-run narrowing of the compiled output budget; it never relaxes standard locks.
-    output_token_limit: int | None = Field(default=None, ge=1, le=262144)
 
     @model_validator(mode="after")
     def unique(self):
@@ -136,29 +134,6 @@ def manifest_dataset_matches(dataset, asset_key):
     return asset_key in aliases.get(dataset, {dataset})
 
 
-def apply_output_limit(compiled, limit):
-    """Narrow only: the run may lower the compiled output budget, never raise it.
-
-    Standard inputs lock ``params.max_out_len``. A narrowed run records the effective
-    value as its own lock so lock revalidation and the frozen snapshot stay consistent,
-    while the stored compilation and its history remain unchanged.
-    """
-    config = compiled["config"]
-    params = config["params"]
-    if config["subcommand"] != "llm_accuracy":
-        raise HTTPException(422, "Output limit applies to accuracy datasets only")
-    current = params.get("max_out_len")
-    if type(current) is not int or current < 1:
-        raise HTTPException(422, "Compilation has no output budget to narrow")
-    if not 1 <= limit <= current:
-        raise HTTPException(422, "Output limit must not exceed the compiled budget")
-    params["max_out_len"] = limit
-    locked = compiled.get("locked_fields") or {}
-    if "params.max_out_len" in locked:
-        locked["params.max_out_len"] = limit
-    return compiled
-
-
 async def resolve_inputs(session, settings, body):
     from autoeval.profiles import EvaluationProfile
     from autoeval.registry import Asset, AssetVersion
@@ -194,8 +169,6 @@ async def resolve_inputs(session, settings, body):
             raise HTTPException(422, "Compilation is blocked or uses an unsupported adaptor")
         if (compiled.get("credential_binding") or {}).get("target_id") != str(body.target_id):
             raise HTTPException(422, "Compilation belongs to another target")
-        if body.output_token_limit is not None:
-            apply_output_limit(compiled, body.output_token_limit)
         source_input = await session.get(StandardInputVersion, compilation.input_id)
         if source_input.benchmark != ("GPQA_Diamond" if spec.dataset == "GPQA" else spec.dataset):
             raise HTTPException(422, "Compilation dataset identity mismatch")
@@ -264,7 +237,6 @@ async def resolve_inputs(session, settings, body):
                 "subset_scope": manifest.scope,
                 "attempts": attempts,
                 "concurrency": concurrency,
-                "output_token_limit": body.output_token_limit,
             }
         )
     return {
@@ -583,7 +555,6 @@ async def current_preflight(session, inputs, *, require_selection=True):
                 not require_selection
                 or (
                     r.payload.get("target_id") == inputs.get("target_id")
-                    and r.payload.get("output_token_limit") == inputs.get("output_token_limit")
                     and selection_identity(r.payload) == selection_identity(inputs)
                 )
             )

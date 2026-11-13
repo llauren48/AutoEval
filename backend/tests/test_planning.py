@@ -282,51 +282,6 @@ def test_native_gpqa_report_requires_matching_scores_and_accuracy():
     assert gpqa_report_summary(summary, unified, task)["scoring_status"] == "failed"
 
 
-def test_output_limit_only_narrows_and_updates_run_lock():
-    from fastapi import HTTPException
-
-    from autoeval.planning import apply_output_limit
-
-    compiled = {
-        "config": {
-            "tool": "ais_bench",
-            "subcommand": "llm_accuracy",
-            "params": {"datasets": ["gpqa_gen_0_shot_cot_chat_prompt"], "max_out_len": 262144},
-        },
-        "locked_fields": {"params.max_out_len": 262144},
-    }
-    assert apply_output_limit(compiled, 2048)["config"]["params"]["max_out_len"] == 2048
-    assert compiled["locked_fields"]["params.max_out_len"] == 2048
-    with pytest.raises(HTTPException):
-        apply_output_limit(compiled, 4096)
-    harbor = {
-        "config": {"tool": "ais_bench", "subcommand": "harbor_agent", "params": {}},
-        "locked_fields": {},
-    }
-    with pytest.raises(HTTPException):
-        apply_output_limit(harbor, 2048)
-
-
-def test_plan_input_accepts_bounded_output_limit():
-    import uuid
-
-    common = {
-        "resource_id": uuid.uuid4(),
-        "target_id": uuid.uuid4(),
-        "resource_kind": "docker_local",
-    }
-    task = {
-        "task_id": "GPQA",
-        "compilation_id": uuid.uuid4(),
-        "manifest_id": uuid.uuid4(),
-        "dataset": "GPQA",
-    }
-    assert PlanInput(**common, tasks=[task], output_token_limit=2048).output_token_limit == 2048
-    for limit in (0, 262145):
-        with pytest.raises(ValidationError):
-            PlanInput(**common, tasks=[task], output_token_limit=limit)
-
-
 def test_offline_planner_identity_requires_all_locked_source_hashes(tmp_path, monkeypatch):
     import importlib.metadata
     import shutil
