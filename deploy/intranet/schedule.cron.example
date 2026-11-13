@@ -1,0 +1,4 @@
+# Administrator installation required. Schedule is UTC (server timezone).
+# 19:15 UTC = 03:15 Asia/Shanghai next day. No entries installed by deployment.
+15 19 * * * /home/chenluwen/autoeval-platform/current/trialctl.sh backup >> /home/chenluwen/autoeval-platform/current/shared/backup.log 2>&1
+*/5 * * * * /home/chenluwen/autoeval-platform/current/trialctl.sh check >> /home/chenluwen/autoeval-platform/current/shared/health.log 2>&1

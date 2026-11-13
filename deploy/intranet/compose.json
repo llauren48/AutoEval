@@ -12,17 +12,11 @@
     "gateway": {
       "image": "${AE_NGINX_IMAGE:?fixed nginx digest required}",
       "restart": "unless-stopped",
-      "ports": [
-        "127.0.0.1:18443:443"
-      ],
       "volumes": [
         "./nginx.conf:/etc/nginx/conf.d/default.conf:ro",
-        "./frontend:/usr/share/nginx/html:ro",
+        "./frontend/dist:/usr/share/nginx/html:ro",
         "./shared/tls:/etc/nginx/tls:ro",
         "./shared/htpasswd:/etc/nginx/htpasswd:ro"
-      ],
-      "networks": [
-        "internal"
       ],
       "logging": {
         "driver": "json-file",
@@ -31,7 +25,12 @@
           "max-file": "3"
         }
       },
-      "mem_limit": "256m"
+      "mem_limit": "256m",
+      "network_mode": "service:network-anchor",
+      "depends_on": [
+        "network-anchor",
+        "postgres"
+      ]
     },
     "postgres": {
       "image": "${AE_POSTGRES_IMAGE:?fixed postgres digest required}",
@@ -41,9 +40,6 @@
       ],
       "volumes": [
         "database:/var/lib/postgresql/data"
-      ],
-      "networks": [
-        "internal"
       ],
       "logging": {
         "driver": "json-file",
@@ -56,12 +52,16 @@
       "healthcheck": {
         "test": [
           "CMD-SHELL",
-          "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
+          "pg_isready -U autoeval -d autoeval"
         ],
         "interval": "5s",
         "timeout": "3s",
         "retries": 20
-      }
+      },
+      "network_mode": "service:network-anchor",
+      "depends_on": [
+        "network-anchor"
+      ]
     },
     "temporal-db": {
       "image": "${AE_POSTGRES_IMAGE:?fixed postgres digest required}",
@@ -72,9 +72,6 @@
       "volumes": [
         "temporal-database:/var/lib/postgresql/data"
       ],
-      "networks": [
-        "internal"
-      ],
       "logging": {
         "driver": "json-file",
         "options": {
@@ -82,7 +79,26 @@
           "max-file": "3"
         }
       },
-      "mem_limit": "2g"
+      "mem_limit": "2g",
+      "network_mode": "service:network-anchor",
+      "depends_on": [
+        "network-anchor",
+        "postgres"
+      ],
+      "command": [
+        "postgres",
+        "-p",
+        "5433"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -p 5433 -U temporal -d temporal"
+        ],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 20
+      }
     },
     "temporal": {
       "image": "${AE_TEMPORAL_IMAGE:?fixed auto-setup digest required}",
@@ -90,9 +106,6 @@
       "env_file": [
         "./shared/temporal.env"
       ],
-      "networks": [
-        "internal"
-      ],
       "logging": {
         "driver": "json-file",
         "options": {
@@ -100,7 +113,12 @@
           "max-file": "3"
         }
       },
-      "mem_limit": "2g"
+      "mem_limit": "2g",
+      "network_mode": "service:network-anchor",
+      "depends_on": [
+        "network-anchor",
+        "postgres"
+      ]
     },
     "storage": {
       "image": "${AE_STORAGE_IMAGE:?fixed storage digest required}",
@@ -117,9 +135,6 @@
       "volumes": [
         "evidence:/data"
       ],
-      "networks": [
-        "internal"
-      ],
       "logging": {
         "driver": "json-file",
         "options": {
@@ -127,19 +142,25 @@
           "max-file": "3"
         }
       },
-      "mem_limit": "2g"
+      "mem_limit": "2g",
+      "entrypoint": [
+        "/opt/bitnami/minio/bin/minio"
+      ],
+      "user": "0:0",
+      "network_mode": "service:network-anchor",
+      "depends_on": [
+        "network-anchor",
+        "postgres"
+      ]
     },
     "api": {
-      "image": "${AE_BACKEND_IMAGE:?fixed backend image required}",
+      "image": "sha256:6d3f094cf4b3f4b934cafd861505b1468bd124ddafeca95d99f0497d8b25f059",
       "restart": "unless-stopped",
       "env_file": [
         "./shared/backend.env"
       ],
       "volumes": [
         "./shared/secrets:/app/.secrets:ro"
-      ],
-      "networks": [
-        "internal"
       ],
       "logging": {
         "driver": "json-file",
@@ -157,7 +178,50 @@
         "0.0.0.0",
         "--port",
         "8000"
-      ]
+      ],
+      "user": "1008:1008",
+      "network_mode": "service:network-anchor",
+      "depends_on": [
+        "network-anchor",
+        "postgres"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import httpx; httpx.get(\"http://127.0.0.1:8000/health/ready\",trust_env=False,timeout=15).raise_for_status()"
+        ],
+        "interval": "30s",
+        "timeout": "20s",
+        "retries": 3,
+        "start_period": "30s"
+      }
+    },
+    "network-anchor": {
+      "image": "docker.1ms.run/library/python@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
+      "command": [
+        "python",
+        "-c",
+        "import signal; signal.pause()"
+      ],
+      "restart": "unless-stopped",
+      "user": "1008:1008",
+      "read_only": true,
+      "networks": [
+        "internal"
+      ],
+      "ports": [
+        "127.0.0.1:18443:443"
+      ],
+      "mem_limit": "64m",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
     }
   }
 }

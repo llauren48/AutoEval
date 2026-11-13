@@ -230,3 +230,5 @@ uv run pytest -q
 临时浏览器脚本已整理至 `backend/tests/browser_checks/`，复用 Playwright，默认不执行。设置 `AE_BROWSER_TEST=1` 运行模拟预检和图表检查；另设 `AE_BROWSER_LIVE_TEST=1` 检查本机任务、报告及工作台只读导航。浏览器可通过 `AE_CHROME_PATH` 配置，截图输出到已忽略的 `.screenshots/browser-checks/`。真实写请求与外部请求会被拦截。运行步骤及验收边界见 [浏览器测试说明](./backend/tests/browser_checks/README.md)。
 
 标准输入详情现支持自动补全候选配置、查看来源与差异，确认后保存不可变编译快照；缺少环境信息仍需补充，不自动批准或开放执行。见 [标准输入说明](docs/standard-inputs.md#自动补全启动配置)。
+
+内网试用环境的服务器部署、迁移及无模型验收见[部署验收记录](docs/intranet-deployment-validation-2026-11-13.md)，启停、备份与管理员待办见[发布操作说明](deploy/intranet/README.md)。外部访问与正式切换尚待管理员放行和最终核对。

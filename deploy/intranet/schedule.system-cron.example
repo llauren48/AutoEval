@@ -1,0 +1,7 @@
+# Review before installing as /etc/cron.d/autoeval-platform (root:root, 0644).
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+HOME=/home/chenluwen
+CRON_TZ=UTC
+15 19 * * * chenluwen /home/chenluwen/autoeval-platform/current/trialctl.sh backup >> /home/chenluwen/autoeval-platform/current/shared/backup.log 2>&1
+*/5 * * * * chenluwen /home/chenluwen/autoeval-platform/current/trialctl.sh check >> /home/chenluwen/autoeval-platform/current/shared/health.log 2>&1
