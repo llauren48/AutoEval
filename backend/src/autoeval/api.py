@@ -166,6 +166,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "planning_datasets": ["GPQA", "MMMU-Pro", "DeepSWE"],
                 "planned_execution_requires_resource_preflight": True,
                 "analysis_enabled": analysis_is_configured(settings),
+                "data_workbench_enabled": settings.environment in {"development", "test"},
                 "aurora_enabled": False,
                 "customer_ssh_enabled": True,
                 "customer_ssh_scope": "gpqa_lite_exploration",

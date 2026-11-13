@@ -72,8 +72,8 @@ export function DataWorkbench() {
     setMessage("评审状态已保存；请在测评榜单查看已批准数据。");
   });
   const nominate = (report: Report) => perform(async () => {
-    const run = await apiGet<{ snapshot: { parameters: Record<string, unknown>; manifest_sha256: string; tool: { revision: string } } }>(`/runs/${report.run_id}`);
-    const entry = { source_key: `report-${report.id}`, source_type: "report", model_name: report.remote_model, dataset: "GPQA", metric: "accuracy", value: report.summary.accuracy, unit: "%", direction: "higher_is_better", scope: "lite", conditions: { ...run.snapshot.parameters, manifest_sha256: run.snapshot.manifest_sha256, tool_revision: run.snapshot.tool.revision }, source_name: "AutoEval", source_url: null, source_version: report.id, source_sha256: report.sha256, report_id: report.id, notes: "报告成绩提名，正式发布门禁不适用。" };
+    const source = await apiGet<Report & { nomination_conditions: Record<string, unknown> }>(`/reports/${report.id}`);
+    const entry = { source_key: `report-${report.id}`, source_type: "report", model_name: report.remote_model, dataset: "GPQA", metric: "accuracy", value: report.summary.accuracy, unit: "%", direction: "higher_is_better", scope: "lite", conditions: source.nomination_conditions, source_name: "AutoEval", source_url: null, source_version: report.id, source_sha256: report.sha256, report_id: report.id, notes: "报告成绩提名，正式发布门禁不适用。" };
     await apiPost("/data-workbench/entries", entry); setTab("榜单数据维护"); setMessage("报告已提名，需评审后入榜。");
   });
   const importOfficial = () => perform(async () => {

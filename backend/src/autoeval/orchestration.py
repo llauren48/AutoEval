@@ -188,6 +188,28 @@ async def create_run(session, settings, body, execution_plan_id, key):
         "remote_model": target.remote_model,
         "execution_origin": settings.evaluation_origin,
     }
+    # A single GPQA result can use the existing report/leaderboard contract without
+    # changing its frozen planning inputs or inventing aggregate multi-dataset scores.
+    if len(inputs["tasks"]) == 1 and inputs["tasks"][0]["dataset"] == "GPQA":
+        task = inputs["tasks"][0]
+        params = task["compilation"]["config"]["params"]
+        generation = params.get("generation_kwargs", {})
+        frozen.update(
+            {
+                "dataset_key": "GPQA",
+                "manifest_id": task["manifest_id"],
+                "manifest_sha256": task["manifest_sha256"],
+                "tool": task["tool"],
+                "config_version_id": task["compilation_id"],
+                "parameters": {
+                    "scope": task.get("subset_scope", "lite"),
+                    "output": params.get("max_out_len"),
+                    "concurrency": task["concurrency"],
+                    "temperature": generation.get("temperature"),
+                    "top_p": generation.get("top_p"),
+                },
+            }
+        )
     session.add(
         RunSnapshot(
             run_id=run.id,
@@ -293,6 +315,17 @@ async def execute(sessions, settings, run_id, heartbeat=lambda: None):
                 child.state = "unresolved"
                 continue
             if observation.state not in TERMINAL:
+                if observation.state == "running":
+                    progress_reader = getattr(adapter, "progress", None)
+                    if progress_reader:
+                        try:
+                            progress = await progress_reader(job)
+                            if progress:
+                                await update_child(
+                                    sessions, child.id, summary={"progress": progress}
+                                )
+                        except (OSError, ValueError, RuntimeError):
+                            pass  # Observation failure never resubmits the model task.
                 continue
             summary = None
             state = observation.state
@@ -348,11 +381,14 @@ async def execute(sessions, settings, run_id, heartbeat=lambda: None):
                         "validity": "failed",
                         "reason": "Result identity or evidence validation failed; raw result preserved",
                     }
+                if child.payload["dataset"] == "GPQA":
+                    summary = gpqa_report_summary(summary, unified, child.payload)
                 if result["result"].get("tool_exit_code", 0) != 0:
                     summary = {
                         **summary,
                         "validity": "partial",
                         "tool_exit_code": result["result"]["tool_exit_code"],
+                        "diagnostic": result["result"].get("diagnostic"),
                     }
                 if summary["validity"] != "complete":
                     state = "failed"
@@ -412,6 +448,35 @@ async def execute(sessions, settings, run_id, heartbeat=lambda: None):
         await asyncio.sleep(2)
 
 
+def gpqa_report_summary(summary, unified, task):
+    native = (unified.get("summary") or {}).get("datasets", [])
+    accuracy = native[0].get("raw_accuracy") if len(native) == 1 else None
+    scores = [c.get("score") for c in unified.get("cases", [])]
+    complete = summary.get("validity") == "complete"
+    verified = (
+        complete
+        and bool(scores)
+        and all(type(v) in (int, float) and v in (0, 1) for v in scores)
+        and type(accuracy) in (int, float)
+        and 0 <= accuracy <= 100
+        and abs(accuracy - sum(scores) / len(scores) * 100) < 0.0001
+    )
+    return {
+        **summary,
+        "expected_samples": summary.get("expected_cases", len(task["samples"])),
+        "executed_attempts": summary.get("attempt_count", 0),
+        "successful_samples": summary.get("observed_cases", 0) - summary.get("failed_cases", 0),
+        "failed_samples": summary.get("failed_cases", 0),
+        "missing_samples": summary.get("missing_cases", 0),
+        "accuracy": accuracy if verified else None,
+        "scoring_status": "succeeded" if verified else "failed",
+        "subset_scope": task.get("subset_scope", "lite"),
+        "dataset_samples": task.get("dataset_samples"),
+        "metric_scope": "selected_manifest",
+        "metric_conversion": "verified_native_accuracy" if verified else "not_verified",
+    }
+
+
 async def finish(sessions, settings, run_id, frozen, children, cancelled):
     async with sessions() as session, session.begin():
         run = await session.get(EvaluationRun, run_id, with_for_update=True)
@@ -429,6 +494,20 @@ async def finish(sessions, settings, run_id, frozen, children, cancelled):
             "gate_status": "not_applicable",
             "execution_origin": frozen["execution_origin"],
         }
+        single_gpqa = (
+            len(children) == 1
+            and children[0].payload["dataset"] == "GPQA"
+            and "parameters" in frozen
+        )
+        if single_gpqa:
+            result.update(
+                snapshot_sha256=digest(frozen),
+                summary=children[0].summary or {},
+                validity="complete"
+                if children[0].state == "succeeded"
+                and (children[0].summary or {}).get("scoring_status") == "succeeded"
+                else "partial",
+            )
         key = f"planned-reports/{run_id}/{digest(result)}.json"
         await asyncio.to_thread(write_manifest, settings, key, canonical_manifest(result))
         session.add(
@@ -436,6 +515,20 @@ async def finish(sessions, settings, run_id, frozen, children, cancelled):
                 kind="run_report", sha256=digest(result), object_key=key, payload=result
             )
         )
+        if single_gpqa:
+            from autoeval.evaluations import EvaluationReport
+
+            session.add(
+                EvaluationReport(
+                    run_id=run_id,
+                    validity=result["validity"],
+                    snapshot_sha256=digest(frozen),
+                    summary=result["summary"],
+                    object_key=key,
+                    sha256=digest(result),
+                    execution_origin=frozen["execution_origin"],
+                )
+            )
         state = (
             "cancelled"
             if cancelled

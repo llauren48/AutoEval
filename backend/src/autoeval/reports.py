@@ -40,6 +40,9 @@ def report_data(
     return {
         "id": str(row.id),
         "run_id": str(row.run_id),
+        "execution_kind": "planned"
+        if snapshot.canonical_body.get("schema_version") == "planned-run.v1"
+        else "evaluation",
         "created_at": row.created_at.isoformat(),
         "validity": row.validity,
         "evidence_status": evidence_status,
@@ -50,6 +53,11 @@ def report_data(
         "remote_model": snapshot.canonical_body["remote_model"],
         "config_version_id": snapshot.canonical_body["config_version_id"],
         "manifest_id": snapshot.canonical_body["manifest_id"],
+        "nomination_conditions": {
+            **snapshot.canonical_body["parameters"],
+            "manifest_sha256": snapshot.canonical_body["manifest_sha256"],
+            "tool_revision": snapshot.canonical_body["tool"]["revision"],
+        },
         "execution_origin": row.execution_origin,
         "gate_status": "not_applicable",
         "analysis_status": analysis_status,
@@ -70,7 +78,9 @@ async def catalog(request: Request, offset: int = 0, limit: int = 20):
                     .join(EvaluationRun, EvaluationRun.id == EvaluationReport.run_id)
                     .join(RunSnapshot, RunSnapshot.run_id == EvaluationRun.id)
                     .where(
-                        EvaluationRun.trigger_scope == "local-operator:evaluation",
+                        EvaluationRun.trigger_scope.in_(
+                            ["local-operator:evaluation", "local-operator:orchestration"]
+                        ),
                         EvaluationReport.execution_origin == "real",
                     )
                     .order_by(EvaluationReport.created_at.desc(), EvaluationReport.id.desc())
@@ -130,8 +140,17 @@ async def detail(report_id: uuid.UUID, request: Request):
                     .where(
                         EvaluationReport.id == report_id,
                         or_(
-                            and_(EvaluationRun.trigger_scope == "local-operator:evaluation", EvaluationReport.execution_origin == "real"),
-                            and_(EvaluationRun.trigger_scope == "local-operator:unified-fixture", EvaluationReport.execution_origin == "simulation", request.app.state.settings.environment in {"development", "test"}),
+                            and_(
+                                EvaluationRun.trigger_scope.in_(
+                                    ["local-operator:evaluation", "local-operator:orchestration"]
+                                ),
+                                EvaluationReport.execution_origin == "real",
+                            ),
+                            and_(
+                                EvaluationRun.trigger_scope == "local-operator:unified-fixture",
+                                EvaluationReport.execution_origin == "simulation",
+                                request.app.state.settings.environment in {"development", "test"},
+                            ),
                         ),
                     )
                 )
@@ -167,7 +186,9 @@ async def evidence(report_id: uuid.UUID, request: Request):
                 .join(EvaluationRun, EvaluationRun.id == EvaluationReport.run_id)
                 .where(
                     EvaluationReport.id == report_id,
-                    EvaluationRun.trigger_scope == "local-operator:evaluation",
+                    EvaluationRun.trigger_scope.in_(
+                        ["local-operator:evaluation", "local-operator:orchestration"]
+                    ),
                     EvaluationReport.execution_origin == "real",
                 )
             )

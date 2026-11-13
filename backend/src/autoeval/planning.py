@@ -85,6 +85,8 @@ class PlanInput(ResourceRef):
     recommend: bool = True
     runs: int = Field(default=100, ge=1, le=100)
     seed: int = Field(default=20261111, ge=0, le=2147483647)
+    # Optional per-run narrowing of the compiled output budget; it never relaxes standard locks.
+    output_token_limit: int | None = Field(default=None, ge=1, le=262144)
 
     @model_validator(mode="after")
     def unique(self):
@@ -129,6 +131,34 @@ async def target_data(session, target_id):
     return {"base_url": target.base_url, "model": target.remote_model}
 
 
+def manifest_dataset_matches(dataset, asset_key):
+    aliases = {"GPQA": {"GPQA", "GPQA_Diamond", "gpqa-diamond"}}
+    return asset_key in aliases.get(dataset, {dataset})
+
+
+def apply_output_limit(compiled, limit):
+    """Narrow only: the run may lower the compiled output budget, never raise it.
+
+    Standard inputs lock ``params.max_out_len``. A narrowed run records the effective
+    value as its own lock so lock revalidation and the frozen snapshot stay consistent,
+    while the stored compilation and its history remain unchanged.
+    """
+    config = compiled["config"]
+    params = config["params"]
+    if config["subcommand"] != "llm_accuracy":
+        raise HTTPException(422, "Output limit applies to accuracy datasets only")
+    current = params.get("max_out_len")
+    if type(current) is not int or current < 1:
+        raise HTTPException(422, "Compilation has no output budget to narrow")
+    if not 1 <= limit <= current:
+        raise HTTPException(422, "Output limit must not exceed the compiled budget")
+    params["max_out_len"] = limit
+    locked = compiled.get("locked_fields") or {}
+    if "params.max_out_len" in locked:
+        locked["params.max_out_len"] = limit
+    return compiled
+
+
 async def resolve_inputs(session, settings, body):
     from autoeval.profiles import EvaluationProfile
     from autoeval.registry import Asset, AssetVersion
@@ -142,10 +172,7 @@ async def resolve_inputs(session, settings, body):
             raise HTTPException(404, "Compilation or manifest not found")
         version = await session.get(AssetVersion, manifest.dataset_version_id)
         asset_row = await session.get(Asset, version.asset_id)
-        if asset_row.asset_key not in {
-            spec.dataset,
-            "GPQA_Diamond" if spec.dataset == "GPQA" else spec.dataset,
-        }:
+        if not manifest_dataset_matches(spec.dataset, asset_row.asset_key):
             raise HTTPException(422, "Manifest dataset identity mismatch")
         profile = await session.scalar(
             select(EvaluationProfile)
@@ -167,11 +194,19 @@ async def resolve_inputs(session, settings, body):
             raise HTTPException(422, "Compilation is blocked or uses an unsupported adaptor")
         if (compiled.get("credential_binding") or {}).get("target_id") != str(body.target_id):
             raise HTTPException(422, "Compilation belongs to another target")
+        if body.output_token_limit is not None:
+            apply_output_limit(compiled, body.output_token_limit)
         source_input = await session.get(StandardInputVersion, compilation.input_id)
         if source_input.benchmark != ("GPQA_Diamond" if spec.dataset == "GPQA" else spec.dataset):
             raise HTTPException(422, "Compilation dataset identity mismatch")
         config = compiled["config"]
         params = config["params"]
+        if config["subcommand"] == "llm_accuracy":
+            if params.get("dump_eval_details") is False:
+                raise HTTPException(
+                    422, "Per-case scoring details are required for report evidence"
+                )
+            params["dump_eval_details"] = True
         if config["subcommand"] == "llm_accuracy" and len(params.get("datasets", [])) != 1:
             raise HTTPException(422, "Each compilation must select exactly one dataset")
         if (spec.dataset == "DeepSWE") != (config["subcommand"] == "harbor_agent"):
@@ -205,6 +240,12 @@ async def resolve_inputs(session, settings, body):
             else:
                 params["task_names"] = list(wanted)
         chosen = selected_samples(config, samples)
+        if config["subcommand"] == "llm_accuracy":
+            # AISBench dataset slicing is authoritative; num_prompts is not consistently
+            # honored across supported versions. Freeze the exact effective tool range.
+            params["dataset_test_range"] = (
+                f"[{chosen[0]['tool_case_id']}:{int(chosen[-1]['tool_case_id']) + 1}]"
+            )
         field = "batch_size" if config["subcommand"] == "llm_accuracy" else "n_concurrent_trials"
         attempts = int(params.get("n_attempts", 1)) if spec.dataset == "DeepSWE" else 1
         concurrency = int(params.get(field, 1))
@@ -219,8 +260,11 @@ async def resolve_inputs(session, settings, body):
                 "profile_sha256": profile.sha256,
                 "tool": profile.contract,
                 "samples": chosen,
+                "dataset_samples": full.sample_count,
+                "subset_scope": manifest.scope,
                 "attempts": attempts,
                 "concurrency": concurrency,
+                "output_token_limit": body.output_token_limit,
             }
         )
     return {
@@ -539,6 +583,7 @@ async def current_preflight(session, inputs, *, require_selection=True):
                 not require_selection
                 or (
                     r.payload.get("target_id") == inputs.get("target_id")
+                    and r.payload.get("output_token_limit") == inputs.get("output_token_limit")
                     and selection_identity(r.payload) == selection_identity(inputs)
                 )
             )
@@ -669,8 +714,14 @@ async def run_detail(run_id: uuid.UUID, request: Request):
                 .limit(1)
             )
         )
+        from autoeval.evaluations import EvaluationReport
+
+        report_id = await session.scalar(
+            select(EvaluationReport.id).where(EvaluationReport.run_id == run_id)
+        )
         return envelope(
             {
+                "report_id": str(report_id) if report_id else None,
                 "id": str(run.id),
                 "state": run.state,
                 "estimate": snapshot.canonical_body.get("estimate"),

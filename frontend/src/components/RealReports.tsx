@@ -90,10 +90,10 @@ export function RealReports({ reportId, open }: { reportId?: string; open: (id: 
                   </td>
                   <td>{row.remote_model}</td>
                   <td>
-                    <span className={`coverage ${row.validity === "complete" ? "complete" : row.validity === "partial" ? "partial" : "error"}`}>
+                    <span className={`report-validity-badge ${row.validity === "complete" ? "complete" : row.validity === "partial" ? "partial" : "error"}`}>
                       {validityLabels[row.validity] || "状态待确认"}
                     </span>
-                    <small>探索测评 · 不适用发布门禁</small>
+                    <small className="report-context">探索 · 门禁不适用</small>
                     {row.evidence_status !== "verified" && <small>原始证据暂不可用，成绩不参与比较。</small>}
                   </td>
                   <td>
@@ -109,9 +109,9 @@ export function RealReports({ reportId, open }: { reportId?: string; open: (id: 
                     {row.evidence_status !== "verified" || row.summary.accuracy === null ? "—" : `${row.summary.accuracy}%`}
                     {row.validity === "partial" && <small>仅成功样本</small>}
                   </td>
-                  <td>{new Date(row.created_at).toLocaleString("zh-CN")}</td><td><span className="badge">{analysisLabel(row.analysis_status)}</span></td>
+                  <td>{new Date(row.created_at).toLocaleString("zh-CN")}</td><td><span className={`report-analysis-badge analysis-${row.analysis_status}`}>{analysisLabel(row.analysis_status)}</span></td>
                   <td>
-                    <button className="link" onClick={() => open(row.id)}>
+                    <button className="run-report-action" onClick={() => open(row.id)}>
                       查看报告
                     </button>
                   </td>

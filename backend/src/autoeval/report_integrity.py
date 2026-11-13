@@ -12,7 +12,7 @@ async def report_evidence_status(settings, report, run, snapshot):
         body = await asyncio.to_thread(read_manifest, settings, report)
         if (
             not isinstance(body, dict)
-            or body.get("schema_version") != "gpqa-report.v1"
+            or body.get("schema_version") not in {"gpqa-report.v1", "planned-report.v1"}
             or body.get("run_id") != str(run.id)
             or body.get("snapshot_sha256") != snapshot.sha256
             or report.snapshot_sha256 != snapshot.sha256

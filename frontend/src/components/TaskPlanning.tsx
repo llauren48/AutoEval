@@ -62,6 +62,7 @@ export function TaskPlanning() {
   const [levels, setLevels] = useState("1,2,4,8");
   const [promptTokens, setPromptTokens] = useState(512);
   const [maxTokens, setMaxTokens] = useState(512);
+  const [outputLimit, setOutputLimit] = useState("");
   const generation = useRef(0);
   const probeIntent = useRef<{ body: string; key: string } | null>(null);
   const pending = useRef<{ body: string; key: string } | null>(null);
@@ -100,11 +101,12 @@ export function TaskPlanning() {
   useEffect(() => { void refresh().catch(() => setMessage("规划选项加载失败，请重试。")); }, []);
   const payload = { target_id: target, resource_id: resource, resource_kind: resourceKind,
     throughput_profile_id: curve || null, dataset_concurrency: parallel, recommend,
+    ...(outputLimit ? { output_token_limit: Number(outputLimit) } : {}),
     tasks: datasets.filter(d => enabled.includes(d) && selection[d]?.compilation && selection[d]?.manifest).map(d => ({
       task_id: d.replaceAll("-", "_"), dataset: d, compilation_id: selection[d].compilation, manifest_id: selection[d].manifest,
     })) };
   const fingerprint = JSON.stringify(payload);
-  const preflightFingerprint = JSON.stringify({ target_id: target, resource_id: resource, resource_kind: resourceKind, tasks: payload.tasks });
+  const preflightFingerprint = JSON.stringify({ target_id: target, resource_id: resource, resource_kind: resourceKind, tasks: payload.tasks, output_token_limit: outputLimit ? Number(outputLimit) : null });
   useEffect(() => {
     generation.current++; setJob(null); setExecution(""); setRunConfirmed(false);
   }, [fingerprint]);
@@ -137,7 +139,10 @@ export function TaskPlanning() {
   const incomplete = enabled.some(d => !selection[d]?.compilation || !selection[d]?.manifest);
   const ready = !!target && !!resource && payload.tasks.length > 0 && !incomplete;
   const report = job?.state === "completed" ? job.result?.report : undefined;
-  const blocker = !target ? "请选择模型服务" : !resource ? "请选择执行资源" : !enabled.length ? "请启用至少一个数据集" : incomplete ? "请补全已启用数据集的配置与样本范围" : !preflight?.result?.execution_ready ? "请完成资源预检并处理阻塞项" : !runConfirmed ? "请确认测评范围与模型调用费用" : "配置已就绪，可以提交测评";
+  const checking = !!preflight && ["pending", "running"].includes(preflight.state);
+  const preflightLabel = !preflight ? "未检查" : ({ pending: "排队中", running: "检查中", completed: preflight.result?.execution_ready ? "检查通过" : "存在阻塞", failed: "检查失败", cancelled: "已取消" } as Record<string, string>)[preflight.state] || "状态待确认";
+  const preflightTone = checking ? "checking" : preflight?.result?.execution_ready ? "passed" : "blocked";
+  const blocker = !target ? "请选择模型服务" : !resource ? "请选择执行资源" : !enabled.length ? "请启用至少一个数据集" : incomplete ? "请补全已启用数据集的配置与样本范围" : checking ? "正在检查执行资源，请稍候…" : !preflight?.result?.execution_ready ? "请完成资源预检并处理阻塞项" : !runConfirmed ? "请确认测评范围与模型调用费用" : "配置已就绪，可以提交测评";
   const sampleCount = payload.tasks.reduce((sum, t) => sum + (options.manifests.find(m => m.id === t.manifest_id)?.sample_count || 0), 0);
   return <div className="planning-layout"><section className="card stack planning-card" aria-label="完整测评规划">
     <h2>1. 模型与执行资源</h2>
@@ -149,8 +154,8 @@ export function TaskPlanning() {
     </div>
     {(targets.error || resources.error) && <p role="alert">{targets.error || resources.error}</p>}
     <div className="planning-actions">
-      <button disabled={busy || !ready} onClick={() => void action(async () => { setPreflight(await apiPost<Job>("/planning/resources/preflight", payload)); })}>预检执行资源</button>
-      {preflight && <p role="status">资源预检：{preflight.state} {preflight.state === "completed" && (preflight.result?.execution_ready ? `可执行：${preflight.result.supported_datasets?.join("、")}` : "存在阻塞项，请核对工具版本、数据路径与数据集验收状态")}</p>}
+      <button disabled={busy || !ready || checking} onClick={() => void action(async () => { setPreflight(await apiPost<Job>("/planning/resources/preflight", payload)); })}>{checking ? "正在预检…" : preflight ? "重新预检" : "预检执行资源"}</button>
+      {preflight && <div className="preflight-feedback" role="status" aria-live="polite"><span className={`preflight-status ${preflightTone}`}><i aria-hidden="true" />{preflightLabel}</span><span className="preflight-hint">{checking ? "正在核对工具版本、数据路径与执行环境" : preflight.result?.execution_ready ? `可执行：${preflight.result.supported_datasets?.join("、") || "所选数据集"}` : preflight.state === "completed" ? "请查看下方检查明细，处理阻塞后重新预检" : "请检查连接及后台任务状态后重试"}</span></div>}
     </div>
     {preflight?.state === "completed" && preflight.result && <div className="notice">
       <p>Planner：{preflight.result.tool_versions?.planner.actual?.slice(0, 12) || "未安装或版本未知"}；Adaptor：{preflight.result.tool_versions?.adaptor.actual?.slice(0, 12) || "未安装或版本未知"}</p>
@@ -170,7 +175,9 @@ export function TaskPlanning() {
     {incomplete && <p role="alert">请为每个已选执行配置选择样本范围。</p>}
     <h2>3. 执行策略</h2>
     <div className="planning-strategy"><label>数据集同时运行数<input aria-label="数据集同时运行数" type="number" min={1} max={3} value={parallel} onChange={e => setParallel(Number(e.target.value))} /></label>
+    <label>本次输出上限（token / 样本，留空沿用执行配置）<input aria-label="本次输出上限" type="number" min={1} max={262144} placeholder="如 2048" value={outputLimit} onChange={e => setOutputLimit(e.target.value.replace(/[^0-9]/g, ""))} /></label>
     <label><input type="checkbox" checked={recommend} onChange={e => setRecommend(e.target.checked)} />可选：搜索更优顺序和并发（不影响直接测评）</label></div>
+    <p className="muted">输出上限只能低于或等于执行配置中的锁定值，用于限制本次真实调用预算；不会修改标准配置或历史快照。</p>
     <details className="planning-throughput"><summary>吞吐曲线与主动探测<span>高级设置 · 可使用已有曲线或发起真实探测</span></summary><div className="probe-content"><h3>主动探测</h3><div className="probe-fields">
       <label>并发档位<input value={levels} onChange={e => { setLevels(e.target.value); setProbeConfirmed(false); }} /></label>
       <label>输入 token<input type="number" min={1} max={4096} value={promptTokens} onChange={e => { setPromptTokens(Number(e.target.value)); setProbeConfirmed(false); }} /></label>
@@ -190,7 +197,8 @@ export function TaskPlanning() {
       <div><dt>模型服务</dt><dd>{targets.rows.find(t => t.id === target)?.remote_model || "待选择"}</dd></div>
       <div><dt>执行资源</dt><dd>{resources.rows.find(r => r.id === resource)?.binding_key || "待选择"}</dd></div>
       <div><dt>测评范围</dt><dd>{enabled.length} 个数据集 · {sampleCount} 个样本</dd></div>
-      <div><dt>资源检查</dt><dd>{preflight?.result?.execution_ready ? "通过" : preflight?.state || "未执行"}</dd></div>
+      <div><dt>输出上限</dt><dd>{outputLimit ? `${outputLimit} token / 样本` : "沿用执行配置"}</dd></div>
+      <div><dt>资源检查</dt><dd><span className={`preflight-status ${preflight ? preflightTone : "idle"}`}>{preflightLabel}</span></dd></div>
     </dl>
     <div className="planning-duration" role="status"><span>预计总耗时</span><strong>{report ? duration(report.estimate.total_duration_sec) : "暂无可靠估算"}</strong><small>{report ? "不含排队及报告分析耗时" : !curve ? "未提供吞吐曲线；可直接按当前配置发起测评" : "配置完成后点击计算耗时与编排"}</small></div>
     <button disabled={busy || !ready || !curve} onClick={() => void action(async () => { const revision = generation.current; const next = await apiPost<Job>("/planning/plans", payload); if (revision === generation.current) setJob(next); })}>计算耗时与编排</button>
@@ -210,7 +218,7 @@ export function TaskPlanning() {
   </aside></div>;
 }
 
-type PlannedRun = { id: string; state: string; execution_origin: string; estimate: Report | null; report: { actual_duration_sec: number | null } | null; datasets: { id: string; dataset: string; state: string; actual_duration_sec: number | null; started_at: string | null; finished_at: string | null }[] };
+type PlannedRun = { report_id?: string | null; id: string; state: string; execution_origin: string; estimate: Report | null; report: { actual_duration_sec: number | null } | null; datasets: { id: string; dataset: string; state: string; summary?: { observed_cases?: number; expected_cases?: number; scored_cases?: number; accuracy?: number | null; diagnostic?: string; progress?: { stage: string; observed_at: string } }; actual_duration_sec: number | null; started_at: string | null; finished_at: string | null }[] };
 export function PlannedRunView({ runId }: { runId: string }) {
   const [run, setRun] = useState<PlannedRun | null>(null);
   const [error, setError] = useState("");
@@ -220,7 +228,16 @@ export function PlannedRunView({ runId }: { runId: string }) {
     const poll = () => { void apiGet<PlannedRun>(`/planning/runs/${runId}`).then(r => { if (!stopped) { setRun(r); setError(""); if (!["completed", "failed", "cancelled"].includes(r.state)) timer = setTimeout(poll, 2000); } }).catch(() => { if (!stopped) { setError("任务状态暂不可读，正在重试。"); timer = setTimeout(poll, 5000); } }); };
     poll(); return () => { stopped = true; clearTimeout(timer); };
   }, [runId]);
-  return <section className="card stack"><a href="#tasks">返回任务列表</a><h2>编排测评任务</h2>{error && <p role="alert">{error}</p>}{run ? <><p>{run.id} · {run.state} · 来源：{run.execution_origin}</p>{run.estimate ? <PlanEstimate report={run.estimate} /> : <p>本次未保存可靠预计耗时。</p>}<h3>实际执行结果</h3><p>实际总耗时：{duration(run.report?.actual_duration_sec)}</p><table><thead><tr><th>数据集</th><th>状态</th><th>实际耗时</th><th>开始 / 结束</th></tr></thead><tbody>{run.datasets.map(d => <tr key={d.id}><td>{d.dataset}</td><td>{d.state}</td><td>{duration(d.actual_duration_sec)}</td><td>{d.started_at || "未开始"} / {d.finished_at || "未结束"}</td></tr>)}</tbody></table>{!["completed", "failed", "cancelled"].includes(run.state) && <button onClick={() => void apiPost(`/planning/runs/${runId}/cancel`, {}).catch(() => setError("取消未确认，请查证后重试。"))}>取消全部子任务</button>}<p>探索结果不用于正式发布门禁。</p></> : <p>加载中…</p>}</section>;
+  const labels: Record<string, string> = { accepted: "已接收", queued: "排队中", pending: "待执行", submitting: "准备执行", running: "执行中", succeeded: "已完成", completed: "已完成", failed: "执行失败", cancelled: "已取消", unresolved: "状态待查证" };
+  return <section className="card stack planned-run-detail"><div className="spread"><a className="link" href="#tasks">返回任务列表</a>{run?.report_id && <a className="primary planned-report-link" href={`#report/${run.report_id}`}>查看报告</a>}</div><h2>编排测评任务</h2>{error && <p role="alert">{error}</p>}{run ? <>
+    <div className="spread"><code>{run.id}</code><span className={`planned-state state-${run.state}`}>{labels[run.state] || run.state}</span></div>
+    <p className="muted">真实执行 · {run.datasets.length} 个数据集 · 实际耗时 {duration(run.report?.actual_duration_sec)}</p>
+    {run.estimate ? <PlanEstimate report={run.estimate} /> : <p className="muted">按当前配置直接执行，未生成耗时估算。</p>}
+    <div className="planned-stage-track" aria-label="执行阶段">{["任务接收", "资源调度", "工具执行", "报告归档"].map((label, index) => <span key={label} className={index === 0 || (index < 3 && run.datasets.some(d => !!d.started_at)) || !!run.report ? "reached" : ""}>{index + 1}. {label}</span>)}</div>
+    <div className="table-wrap"><table><thead><tr><th>数据集</th><th>状态 / 进度</th><th>已归档样本</th><th>实际耗时</th><th>开始 / 结束</th></tr></thead><tbody>{run.datasets.map(d => <tr key={d.id}><td>{d.dataset}</td><td><span className={`planned-state state-${d.state}`}>{labels[d.state] || d.state}</span><small>{d.summary?.progress ? "工具进程已启动，等待样本结果归档" : !d.finished_at ? "等待后台状态更新" : "执行已结束"}</small></td><td>{d.summary?.observed_cases != null ? `${d.summary.observed_cases} / ${d.summary.expected_cases ?? "—"}` : "尚未归档，进度未知"}</td><td>{duration(d.actual_duration_sec)}</td><td>{d.started_at ? new Date(d.started_at).toLocaleString("zh-CN") : "未开始"}<small>{d.finished_at ? new Date(d.finished_at).toLocaleString("zh-CN") : "未结束"}</small></td></tr>)}</tbody></table></div>
+    {run.datasets.some(d => d.summary?.diagnostic) && <details><summary>失败诊断</summary>{run.datasets.map(d => d.summary?.diagnostic && <pre key={d.id} className="snapshot">{d.summary.diagnostic}</pre>)}</details>}
+    {!["completed", "failed", "cancelled"].includes(run.state) && <button onClick={() => void apiPost(`/planning/runs/${runId}/cancel`, {}).catch(() => setError("取消未确认，请查证后重试。"))}>取消全部子任务</button>}<p className="muted">样本归档前不估造完成比例；Lite 结果不用于正式发布门禁。</p></> : <p>加载中…</p>}</section>;
+
 }
 
 export function PlannedRuns() {

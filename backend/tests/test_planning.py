@@ -237,3 +237,113 @@ async def test_planned_workflow_is_valid_in_temporal_sandbox():
     SandboxedWorkflowRunner().prepare_workflow(
         workflow._Definition.must_from_class(PlannedEvaluationWorkflow)
     )
+
+
+@pytest.mark.parametrize("key", ["GPQA", "GPQA_Diamond", "gpqa-diamond"])
+def test_gpqa_manifest_registered_aliases(key):
+    from autoeval.planning import manifest_dataset_matches
+
+    assert manifest_dataset_matches("GPQA", key)
+
+
+@pytest.mark.parametrize(
+    "dataset,key", [("GPQA", "MMMU-Pro"), ("GPQA", "fixture-gpqa"), ("DeepSWE", "gpqa-diamond")]
+)
+def test_manifest_aliases_reject_other_datasets(dataset, key):
+    from autoeval.planning import manifest_dataset_matches
+
+    assert not manifest_dataset_matches(dataset, key)
+
+
+def test_native_gpqa_report_requires_matching_scores_and_accuracy():
+    from autoeval.orchestration import gpqa_report_summary
+
+    task = {
+        "samples": [{"sample_id": "a"}, {"sample_id": "b"}],
+        "dataset_samples": 198,
+        "subset_scope": "lite",
+    }
+    summary = {
+        "validity": "complete",
+        "expected_cases": 2,
+        "observed_cases": 2,
+        "failed_cases": 0,
+        "attempt_count": 2,
+        "missing_cases": 0,
+    }
+    unified = {
+        "summary": {"datasets": [{"raw_accuracy": 50.0}]},
+        "cases": [{"score": 1.0}, {"score": 0.0}],
+    }
+    assert gpqa_report_summary(summary, unified, task)["accuracy"] == 50.0
+    unified["summary"]["datasets"][0]["raw_accuracy"] = 100.0
+    assert gpqa_report_summary(summary, unified, task)["accuracy"] is None
+    unified["cases"] = []
+    assert gpqa_report_summary(summary, unified, task)["scoring_status"] == "failed"
+
+
+def test_output_limit_only_narrows_and_updates_run_lock():
+    from fastapi import HTTPException
+
+    from autoeval.planning import apply_output_limit
+
+    compiled = {
+        "config": {
+            "tool": "ais_bench",
+            "subcommand": "llm_accuracy",
+            "params": {"datasets": ["gpqa_gen_0_shot_cot_chat_prompt"], "max_out_len": 262144},
+        },
+        "locked_fields": {"params.max_out_len": 262144},
+    }
+    assert apply_output_limit(compiled, 2048)["config"]["params"]["max_out_len"] == 2048
+    assert compiled["locked_fields"]["params.max_out_len"] == 2048
+    with pytest.raises(HTTPException):
+        apply_output_limit(compiled, 4096)
+    harbor = {
+        "config": {"tool": "ais_bench", "subcommand": "harbor_agent", "params": {}},
+        "locked_fields": {},
+    }
+    with pytest.raises(HTTPException):
+        apply_output_limit(harbor, 2048)
+
+
+def test_plan_input_accepts_bounded_output_limit():
+    import uuid
+
+    common = {
+        "resource_id": uuid.uuid4(),
+        "target_id": uuid.uuid4(),
+        "resource_kind": "docker_local",
+    }
+    task = {
+        "task_id": "GPQA",
+        "compilation_id": uuid.uuid4(),
+        "manifest_id": uuid.uuid4(),
+        "dataset": "GPQA",
+    }
+    assert PlanInput(**common, tasks=[task], output_token_limit=2048).output_token_limit == 2048
+    for limit in (0, 262145):
+        with pytest.raises(ValidationError):
+            PlanInput(**common, tasks=[task], output_token_limit=limit)
+
+
+def test_offline_planner_identity_requires_all_locked_source_hashes(tmp_path, monkeypatch):
+    import importlib.metadata
+    import shutil
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from autoeval import planning_runtime
+
+    real = importlib.metadata.distribution("autoeval-task-planner")
+    root = Path(real.locate_file("autoeval_planner"))
+    shutil.copytree(root, tmp_path / "autoeval_planner")
+    package = SimpleNamespace(read_text=lambda _: None, locate_file=lambda p: tmp_path / p)
+    monkeypatch.setattr(planning_runtime.importlib.metadata, "distribution", lambda _: package)
+    assert (
+        planning_runtime.installed_revision("autoeval-task-planner")
+        == planning_runtime.PLANNER_REVISION
+    )
+    source = next((tmp_path / "autoeval_planner").rglob("*.py"))
+    source.write_bytes(source.read_bytes() + b"\n# changed\n")
+    assert planning_runtime.installed_revision("autoeval-task-planner") is None

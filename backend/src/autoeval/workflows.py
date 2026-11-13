@@ -49,7 +49,7 @@ class ReportAnalysisWorkflow:
     async def run(self, request: dict) -> dict:
         return await workflow.execute_activity(
             "execute_report_analysis",
-            request["analysis_id"],
+            args=[request["analysis_id"], request.get("retry_count", 0)],
             task_queue=request["activity_queue"],
             start_to_close_timeout=timedelta(minutes=5),
             heartbeat_timeout=timedelta(seconds=120),

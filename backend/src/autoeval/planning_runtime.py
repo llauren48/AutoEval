@@ -16,11 +16,28 @@ ADAPTOR_REVISION = "955089ab32ef696c231d628f5ad0d9da28f430c4"
 
 def installed_revision(distribution):
     try:
-        direct = json.loads(
-            importlib.metadata.distribution(distribution).read_text("direct_url.json") or "{}"
-        )
-        return direct.get("vcs_info", {}).get("commit_id")
-    except (importlib.metadata.PackageNotFoundError, ValueError):
+        package = importlib.metadata.distribution(distribution)
+        direct = json.loads(package.read_text("direct_url.json") or "{}")
+        revision = direct.get("vcs_info", {}).get("commit_id")
+        if revision:
+            return revision
+        if distribution != "autoeval-task-planner":
+            return None
+        lock_path = Path(__file__).with_name("planner-package.json")
+        if not lock_path.exists():
+            lock_path = Path(__file__).resolve().parents[2] / "tool-locks" / "planner-package.json"
+        lock = json.loads(lock_path.read_text())
+        root = Path(package.locate_file("autoeval_planner"))
+        actual = {"autoeval_planner/" + p.relative_to(root).as_posix() for p in root.rglob("*.py")}
+        if actual != set(lock["files"]):
+            return None
+        if any(
+            hashlib.sha256(package.locate_file(p).read_bytes()).hexdigest() != sha
+            for p, sha in lock["files"].items()
+        ):
+            return None
+        return lock["revision"]
+    except (importlib.metadata.PackageNotFoundError, ValueError, OSError, TypeError):
         return None
 
 
@@ -342,9 +359,36 @@ def execute(folder, spec):
         # No nested container launch is inferred from compiler UI defaults.
         if runtime.get("datasets_dir") and not Path(runtime["datasets_dir"]).is_dir():
             raise ValueError("Dataset directory missing in execution environment")
-        completed = subprocess.run(
-            command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        # Keep upstream/scorer source immutable. MMEngine must not serialize imported
+        # Python modules as literal configuration values (e.g. copy=<module ...>).
+        compatibility = folder / "config-compatibility"
+        compatibility.mkdir(exist_ok=True)
+        (compatibility / "sitecustomize.py").write_text(
+            "import types\nfrom mmengine.config import Config\n"
+            "_dump = Config.dump\n"
+            "def _safe_dump(self, *args, **kwargs):\n"
+            "    for name in list(self.keys()):\n"
+            "        if isinstance(self[name], types.ModuleType): self.pop(name)\n"
+            "    return _dump(self, *args, **kwargs)\n"
+            "Config.dump = _safe_dump\n"
         )
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = (
+            str(compatibility) + os.pathsep + environment.get("PYTHONPATH", "")
+        )
+        progress = {
+            "job_id": folder.name,
+            "stage": "tool_running",
+            "observed_at": datetime.now(UTC).isoformat(),
+        }
+        (folder / "progress.json").write_text(json.dumps(progress))
+        with (folder / "tool.log").open("wb") as log:
+            completed = subprocess.run(
+                command, check=False, stdout=log, stderr=subprocess.STDOUT, env=environment
+            )
+        diagnostic = (folder / "tool.log").read_bytes()[-12000:].decode("utf-8", errors="replace")
+        if key:
+            diagnostic = diagnostic.replace(key, "[REDACTED]")
         candidates = list(output.rglob("unified_result.json"))
         if len(candidates) != 1:
             raise ValueError("Exactly one unified_result.json required")
@@ -354,7 +398,11 @@ def execute(folder, spec):
         result = json.loads(raw)
         if key and key in json.dumps(result):
             raise ValueError("Credential present in result")
-        return {"unified_result": result, "tool_exit_code": completed.returncode}
+        return {
+            "unified_result": result,
+            "tool_exit_code": completed.returncode,
+            "diagnostic": diagnostic if completed.returncode else None,
+        }
     finally:
         secret_path.unlink(missing_ok=True)
         (folder / "private-config.json").unlink(missing_ok=True)

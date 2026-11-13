@@ -37,6 +37,9 @@ def runtime_files():
     )
     return {
         "planning_runtime.py": RUNTIME.read_bytes(),
+        "planner-package.json": (
+            RUNTIME.parents[2] / "tool-locks" / "planner-package.json"
+        ).read_bytes(),
         "planning_calculation.py": engine.encode(),
         "planning_contract.py": contract.encode(),
     }
@@ -77,10 +80,9 @@ class PlanningRemoteContainer(DockerExecutor):
         self.control = SSHExecutor(connection)
         self.files = {"job_runtime.py": self.runtime.read_bytes(), **runtime_files()}
         distribution = importlib.metadata.distribution("autoeval-task-planner")
-        direct = json.loads(distribution.read_text("direct_url.json"))
-        from autoeval.planning_runtime import PLANNER_REVISION
+        from autoeval.planning_runtime import PLANNER_REVISION, installed_revision
 
-        if direct.get("vcs_info", {}).get("commit_id") != PLANNER_REVISION:
+        if installed_revision("autoeval-task-planner") != PLANNER_REVISION:
             raise ValueError("Local Planner distribution does not match pin")
         for item in distribution.files:
             name = str(item).replace("\\", "/")

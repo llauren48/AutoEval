@@ -130,7 +130,7 @@ async def validate_report(request, session, entry):
         report.validity != "complete"
         or report.execution_origin != "real"
         or snapshot is None
-        or run.trigger_scope != "local-operator:evaluation"
+        or run.trigger_scope not in {"local-operator:evaluation", "local-operator:orchestration"}
         or await report_evidence_status(request.app.state.settings, report, run, snapshot)
         != "verified"
     ):

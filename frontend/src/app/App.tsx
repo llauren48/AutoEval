@@ -8,7 +8,7 @@ import { TaskPlanning, PlannedRunView, PlannedRuns } from "../components/TaskPla
 import { EvaluationRuns } from "../components/EvaluationRuns";
 import { RealReports } from "../components/RealReports";
 import { RealLeaderboard } from "../components/RealLeaderboard";
-import { apiGetPage } from "../services/api";
+import { apiGet, apiGetPage } from "../services/api";
 import { Configurations, EvaluationConsole, useProfiles } from "./Workflow";
 import { useEffect, useState } from "react";
 import {
@@ -38,7 +38,7 @@ const menus = [
   { id: "tasks", label: "任务管理", icon: ClipboardList },
   { id: "reports", label: "报告管理", icon: ChartNoAxesColumnIncreasing },
   { id: "leaderboard", label: "测评榜单", icon: Trophy },
-  ...(import.meta.env.DEV ? [{ id: "data-workbench", label: "数据工作台", icon: Database }] : []),
+  { id: "data-workbench", label: "数据工作台", icon: Database },
 ];
 
 function Card({
@@ -73,6 +73,14 @@ function Notice({ children }: { children: ReactNode }) {
 
 export function App() {
   const [profiles, setProfiles] = useProfiles();
+  const [workbenchEnabled, setWorkbenchEnabled] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void apiGet<{ data_workbench_enabled?: boolean }>("/system/capabilities", controller.signal)
+      .then(value => setWorkbenchEnabled(value.data_workbench_enabled === true))
+      .catch(() => setWorkbenchEnabled(false));
+    return () => controller.abort();
+  }, []);
   const [page, setPage] = useState(location.hash.slice(1) || "console");
   const [taskKind, setTaskKind] = useState("evaluation");
   const [consoleMode, setConsoleMode] = useState("planning");
@@ -122,7 +130,7 @@ export function App() {
         </div>
         <div className="workspace">工作空间：本地单工作空间</div>
         <nav>
-          {menus.map((menu) => (
+          {menus.filter(menu => menu.id !== "data-workbench" || workbenchEnabled).map((menu) => (
             <a
               key={menu.id}
               href={`#${menu.id}`}
@@ -213,8 +221,8 @@ export function App() {
             open={(id) => go(`report/${id}`)}
           />
         )}
-        {page === "leaderboard" && (import.meta.env.DEV ? <div className="stack"><PublishedLeaderboard /><details><summary>平台运行报告候选成绩（未人工评审）</summary><RealLeaderboard open={(id) => go(`report/${id}`)} /></details></div> : <RealLeaderboard open={(id) => go(`report/${id}`)} />)}
-        {import.meta.env.DEV && page === "data-workbench" && <DataWorkbench />}
+        {page === "leaderboard" && (<div className="stack"><PublishedLeaderboard /><details><summary>平台运行报告候选成绩（未人工评审）</summary><RealLeaderboard open={(id) => go(`report/${id}`)} /></details></div>)}
+        {workbenchEnabled && page === "data-workbench" && <DataWorkbench />}
 
         <footer className="page-foot">
           AutoEval · 智能测评平台
