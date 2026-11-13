@@ -47,25 +47,26 @@ export function AnalysisPanel({ reportId, status, executionOrigin, onStatus }: {
     } finally { setBusy(false); }
   };
   if (executionOrigin !== "real") {
-    return <section data-testid="analysis-status"><h3>智能分析</h3><p>非真实执行来源，不启用智能分析；原始报告不受影响。</p></section>;
+    return <section className="analysis-panel" data-testid="analysis-status"><p>非真实执行来源，不启用智能分析；原始报告不受影响。</p></section>;
   }
-  const statements = (title: string, rows: Statement[]) => <div><h4>{title}</h4>{rows.length ? <ul>{rows.map((row, index) => <li key={index}>{row.statement}<details><summary>证据引用</summary><code>{row.evidence_ids.join("、") || "证据不足"}</code></details></li>)}</ul> : <p>无</p>}</div>;
-  return <section data-testid="analysis-status">
-    <h3>智能分析</h3><p className="muted">分析独立于测评执行。重试只重新分析已有证据，不重测、不修改原始报告；模型分析可能产生调用费用。</p>
+  const statements = (title: string, rows: Statement[], tone: string) => <section className={`analysis-section ${tone}`}><header><h4>{title}</h4><span className="badge neutral">{rows.length} 条</span></header>{rows.length ? <ol className="analysis-statements">{rows.map((row, index) => <li key={index}><p>{row.statement}</p><details className="analysis-citations"><summary>证据引用 · {row.evidence_ids.length}</summary><div>{row.evidence_ids.length ? row.evidence_ids.map((id, i) => <code key={i}>{id}</code>) : "证据不足"}</div></details></li>)}</ol> : <p className="muted">暂无内容</p>}</section>;
+
+  return <section className="analysis-panel" data-testid="analysis-status">
+    <p className="muted">分析独立于测评执行。重试只重新分析已有证据，不重测、不修改原始报告；模型分析可能产生调用费用。</p>
     {status === "not_enabled" && <p>未配置独立分析目标与资源；原始报告不受影响。</p>}
     {status === "not_queued" && <><p>分析尚未排队。</p><button disabled={busy} onClick={() => void queue("start")}>启动独立分析</button></>}
-    {analysis && <div>
-      <p>状态：{({ queued: "排队中", running: "分析中", succeeded: "分析成功", completed: "分析成功", failed: "分析失败", unresolved: "结果待查证" } as Record<string, string>)[analysis.state] || "待确认"}；重试次数：{analysis.retry_count}</p>
+    {analysis && <div className="analysis-content">
+      <p className="analysis-state">状态：{({ queued: "排队中", running: "分析中", succeeded: "分析成功", completed: "分析成功", failed: "分析失败", unresolved: "结果待查证" } as Record<string, string>)[analysis.state] || "待确认"}；重试次数：{analysis.retry_count}</p>
       {analysis.started_at && <p>开始：{new Date(analysis.started_at).toLocaleString("zh-CN")}；完成：{analysis.finished_at ? new Date(analysis.finished_at).toLocaleString("zh-CN") : "尚未完成"}</p>}
-      {analysis.error_code && <p role="alert">错误类别：{analysis.error_code}</p>}
-      {analysis.state === "unresolved" && <p role="alert">调用结果待查证，禁止重发分析请求。</p>}
+      {analysis.error_code && <p className="analysis-error" role="alert">错误类别：{analysis.error_code}</p>}
+      {analysis.state === "unresolved" && <p className="analysis-unresolved" role="alert">调用结果待查证，禁止重发分析请求。</p>}
       {analysis.state === "failed" && analysis.retry_count === 0 && <button disabled={busy} onClick={() => void queue("retry")}>重试失败分析（仅一次）</button>}
       {analysis.result?.analysis && <div data-testid="analysis-result">
-        <p>{analysis.result.analysis.summary}</p>
-        {statements("报告事实", analysis.result.analysis.facts)}
-        {statements("Agent 推断（非原始成绩）", analysis.result.analysis.inferences)}
-        <h4>建议</h4><ul>{analysis.result.analysis.recommended_actions.map((action, index) => <li key={index}>{action}</li>)}</ul>
-        <details><summary>分析证据引用与原始响应</summary><p>{analysis.result.analysis.evidence_ids.join("、")}</p><pre style={{ overflow: "auto" }}>{JSON.stringify(analysis.result, null, 2)}</pre></details>
+        <section className="analysis-summary"><h4>分析摘要</h4><p>{analysis.result.analysis.summary}</p></section><div className="analysis-result-grid">
+        {statements("报告事实", analysis.result.analysis.facts, "facts")}
+        {statements("Agent 推断（非原始成绩）", analysis.result.analysis.inferences, "inferences")}
+        </div><section className="analysis-section analysis-recommendations"><header><h4>建议</h4><span className="badge neutral">{analysis.result.analysis.recommended_actions.length} 条</span></header><ol>{analysis.result.analysis.recommended_actions.map((action, index) => <li key={index}>{action}</li>)}</ol></section>
+        <details className="analysis-raw"><summary>分析证据引用与原始响应</summary><p>{analysis.result.analysis.evidence_ids.join("、")}</p><pre className="snapshot">{JSON.stringify(analysis.result, null, 2)}</pre></details>
       </div>}
     </div>}
     {message && <p role="alert">{message} <button onClick={() => setRevision((value) => value + 1)}>重新查询分析状态</button></p>}

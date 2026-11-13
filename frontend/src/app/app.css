@@ -3943,3 +3943,49 @@ textarea { font: inherit; }
 .phase-spinner { width: 12px; height: 12px; border: 2px solid #c9bcff; border-top-color: var(--primary); border-radius: 50%; animation: phase-spin 1s linear infinite; }
 @keyframes phase-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .phase-spinner { animation: none; border-color: var(--primary); } }
+/* Report sections share a compact heading and clear content boundary. */
+.report-view-tabs { margin-top: 4px; margin-bottom: 0; gap: 8px; }
+.report-view-tabs button { display: inline-flex; align-items: center; gap: 8px; padding: 12px 18px; }
+.report-view-tabs .badge { font-size: 11px; padding: 2px 7px; }
+.report-datasets-tab, .report-analysis-view { padding-top: 8px; min-width: 0; }
+.report-tab-heading { margin-bottom: 16px; }
+.report-tab-heading h3 { margin: 0; font-size: 18px; }
+.report-tab-heading p { margin: 6px 0 0; font-size: 13px; }
+.report-analysis-view > p.muted { margin: 0 0 16px; padding: 10px 14px; border-radius: 6px; background: #f6f7fb; font-size: 13px; }
+.analysis-panel { display: grid; gap: 12px; min-width: 0; }
+.analysis-panel > h3 { font-size: 18px; margin: 0; }
+.analysis-panel > p { margin: 0; }
+.analysis-panel > .muted { font-size: 13px; line-height: 1.7; max-width: 960px; }
+.analysis-content { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--border); border-radius: 8px; background: #fafbfe; }
+.analysis-content > p { margin: 0; }
+.analysis-state { font-weight: 600; }
+.analysis-error { font: 12px/1.7 Consolas, "Microsoft YaHei", monospace; overflow-wrap: anywhere; color: #79521d; }
+.analysis-unresolved { padding: 10px 12px; background: #fff4e4; color: #80520f; border-radius: 6px; font-size: 13px; }
+.analysis-content > button { justify-self: start; }
+.analysis-content [data-testid="analysis-result"] { border-top: 1px solid var(--border); padding-top: 12px; }
+@media (max-width: 600px) {
+  .report-view-tabs { overflow-x: auto; flex-wrap: nowrap; }
+  .report-view-tabs button { padding: 10px 12px; flex-shrink: 0; }
+  .analysis-content { padding: 14px; }
+}
+.analysis-content [data-testid="analysis-result"] { display: grid; gap: 18px; }
+.analysis-summary { border-radius: 8px; background: #f1eeff; padding: 18px 20px; border-left: 3px solid var(--primary); }
+.analysis-summary h4, .analysis-section h4 { margin: 0; font-size: 15px; }
+.analysis-summary p { margin: 8px 0 0; line-height: 1.8; overflow-wrap: anywhere; }
+.analysis-result-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.analysis-section { padding: 18px 20px; background: #fff; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.analysis-section header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.analysis-statements { margin: 0; padding-left: 22px; }
+.analysis-statements > li { padding: 12px 0; border-bottom: 1px solid #eceef6; line-height: 1.75; overflow-wrap: anywhere; }
+.analysis-statements > li:last-child { border-bottom: 0; padding-bottom: 0; }
+.analysis-statements p { margin: 0 0 6px; }
+.analysis-statements > li::marker, .analysis-recommendations li::marker { color: #6857cc; font-weight: 600; }
+.analysis-citations { color: #606982; font-size: 12px; }
+.analysis-citations summary, .analysis-raw summary { cursor: pointer; color: #5743c4; }
+.analysis-citations > div { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.analysis-citations code { padding: 3px 7px; border-radius: 4px; background: #f1f2f7; overflow-wrap: anywhere; max-width: 100%; }
+.analysis-recommendations ol { margin: 12px 0 0; padding-left: 22px; display: grid; gap: 10px; line-height: 1.75; }
+.analysis-raw { font-size: 13px; padding-top: 4px; overflow-wrap: anywhere; }
+.analysis-raw pre { max-height: 360px; overflow: auto; white-space: pre-wrap; }
+@media (max-width: 1100px) { .analysis-result-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .analysis-section, .analysis-summary { padding: 14px; } }
