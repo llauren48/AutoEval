@@ -178,7 +178,9 @@ execution_origin由服务端运行环境冻结，默认real；模拟测试应用
 
 ## 独立分析与恢复
 
-配置AE_ANALYSIS_TARGET_ID和AE_ANALYSIS_RESOURCE_ID后，报告事务会创建分析意图；启动`uv run python -m autoeval.worker analysis-workflow`、`uv run python -m autoeval.worker result`及dispatcher。分析输入冻结报告/快照摘要，模型引用只能使用服务端证据目录，失败重试不重测、不改报告。该功能可能产生模型费用，普通回归测试使用明确的模拟边界。
+仅`execution_origin=real`的普通测评报告可分析。配置AE_ANALYSIS_TARGET_ID和AE_ANALYSIS_RESOURCE_ID后，报告事务会创建分析意图；分析与被测的target绑定、模型版本、remote_model、credential_ref、resource绑定及实际Docker container必须全部不同，未满足条件时跳过自动分析，不影响原始报告归档。`GET /reports/{id}/analysis`查询结果；未排队报告通过`POST /reports/{id}/analysis:start`创建`manual_start`任务且`retry_count=0`，失败后才通过`POST /reports/{id}/analysis:retry`复用同一任务重试一次。分析输入对象、摘要和证据目录在进入`running`前完成冻结，模型引用只能使用服务端证据目录；重试不重测、不改报告。
+
+启动`uv run python -m autoeval.worker analysis-workflow`、`uv run python -m autoeval.worker result`及dispatcher。该功能可能产生模型费用，普通回归测试使用明确的模拟边界。
 
 reconciler可恢复已有归档GPQA attempt，绝不重放状态未知的生成请求；unknown会保留占用及审计，等待证据查证。诊断清理使用持久状态和所有权边界，不删除客户既有对象。`autoeval.backup`提供备份及空scratch目标恢复；不得将其开发演练当成生产RPO/RTO证明。
 

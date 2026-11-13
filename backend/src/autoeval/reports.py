@@ -100,7 +100,9 @@ async def catalog(request: Request, offset: int = 0, limit: int = 20):
                     *row,
                     baselines,
                     analysis_status=analysis_status_for(
-                        jobs.get(row[0].id), request.app.state.settings
+                        jobs.get(row[0].id),
+                        request.app.state.settings,
+                        execution_origin=row[0].execution_origin,
                     ),
                     analysis_id=jobs.get(row[0].id).id if jobs.get(row[0].id) else None,
                     evidence_status=status,
@@ -143,7 +145,11 @@ async def detail(report_id: uuid.UUID, request: Request):
             data = report_data(
                 *row,
                 baselines,
-                analysis_status=analysis_status_for(job, request.app.state.settings),
+                analysis_status=analysis_status_for(
+                    job,
+                    request.app.state.settings,
+                    execution_origin=row[0].execution_origin,
+                ),
                 analysis_id=job.id if job else None,
                 evidence_status=await report_evidence_status(request.app.state.settings, *row),
             )

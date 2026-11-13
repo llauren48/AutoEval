@@ -404,21 +404,26 @@ async def execute_gpqa_exploration(run_id: str, resume: bool = False):
                 session.add(report)
                 await session.flush()
             from autoeval.analysis import (
+                AnalysisConfigurationError,
                 analysis_is_configured,
                 current_baseline_comparison,
                 enqueue_analysis,
             )
 
-            if analysis_is_configured(settings):
+            if report.execution_origin == "real" and analysis_is_configured(settings):
                 comparison = await current_baseline_comparison(session, report, snapshot)
-                await enqueue_analysis(
-                    session,
-                    settings,
-                    report,
-                    snapshot,
-                    trigger="report_created",
-                    baseline_comparison=comparison,
-                )
+                try:
+                    await enqueue_analysis(
+                        session,
+                        settings,
+                        report,
+                        snapshot,
+                        trigger="report_created",
+                        baseline_comparison=comparison,
+                    )
+                except AnalysisConfigurationError:
+                    # Optional analysis configuration must not roll back the sealed report.
+                    pass
             if frozen.get("resource_kind") == "customer_ssh":
                 from autoeval.cleanup import schedule_cleanup
 

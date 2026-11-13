@@ -13,8 +13,8 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from autoeval import analysis_activity, evaluation_activity
-from autoeval.analysis import ReportAnalysis, retry_existing_analysis
-from autoeval.analysis_activity import execute_report_analysis, read_analysis_result
+from autoeval.analysis import ReportAnalysis
+from autoeval.analysis_activity import execute_report_analysis
 from autoeval.api import create_app
 from autoeval.config import get_settings
 from autoeval.datasets import DatasetManifest
@@ -77,13 +77,15 @@ async def test_submit_deduplicate_partial_report_and_cancel(monkeypatch):
         invalid = scenario == "partial" and len(analysis_calls) == 1
         return {
             "state": "succeeded",
-            "response": json.dumps({
-                "summary": "Evidence-bound analysis",
-                "evidence_ids": ["foreign" if invalid else "run.summary"],
-                "facts": [{"statement": "Report archived", "evidence_ids": ["run.summary"]}],
-                "inferences": [],
-                "recommended_actions": [],
-            }),
+            "response": json.dumps(
+                {
+                    "summary": "Evidence-bound analysis",
+                    "evidence_ids": ["foreign" if invalid else "run.summary"],
+                    "facts": [{"statement": "Report archived", "evidence_ids": ["run.summary"]}],
+                    "inferences": [],
+                    "recommended_actions": [],
+                }
+            ),
             "finish_reason": "stop",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -235,57 +237,14 @@ async def test_submit_deduplicate_partial_report_and_cancel(monkeypatch):
             }
             assert len(calls) == (4 if scenario == "scoring_failure" else 2)
 
-            for _ in range(20):
-                if not await deliver_once(app.state.sessions, client):
-                    break
-            job = None
-            for _ in range(100):
-                async with app.state.sessions() as session:
-                    job = await session.scalar(
-                        select(ReportAnalysis).where(
-                            ReportAnalysis.report_id == uuid.UUID(detail["report"]["id"])
-                        )
+            start = await api.post(f"{prefix}/reports/{detail['report']['id']}/analysis:start")
+            assert start.status_code == 404
+            async with app.state.sessions() as session:
+                job = await session.scalar(
+                    select(ReportAnalysis).where(
+                        ReportAnalysis.report_id == uuid.UUID(detail["report"]["id"])
                     )
-                if job is not None and job.state in {"succeeded", "failed", "unresolved"}:
-                    break
-                await asyncio.sleep(0.2)
-            assert job is not None, "Report creation must enqueue independent analysis"
-            assert job.state == (
-                "failed" if scenario == "partial" else "unresolved" if cancelled else "succeeded"
-            )
-            assert job.report_sha256 == detail["report"]["sha256"]
-            assert job.baseline_comparison["status"] == "missing"
-            if scenario == "partial":
-                failed_result = await read_analysis_result(settings, job)
-                assert failed_result["error_code"] == "INVALID_MODEL_OUTPUT"
-                before = len(analysis_calls)
-                async with app.state.sessions() as session, session.begin():
-                    locked = await session.get(ReportAnalysis, job.id)
-                    _, created = await retry_existing_analysis(session, settings, locked)
-                    assert created is True
-                for _ in range(20):
-                    if not await deliver_once(app.state.sessions, client):
-                        break
-                for _ in range(100):
-                    async with app.state.sessions() as session:
-                        job = await session.get(ReportAnalysis, job.id)
-                    if job.state == "succeeded":
-                        break
-                    await asyncio.sleep(0.2)
-                assert job.state == "succeeded"
-                assert len(analysis_calls) == before + 1
-            elif cancelled:
-                before = len(analysis_calls)
-                async with app.state.sessions() as session, session.begin():
-                    locked = await session.get(ReportAnalysis, job.id)
-                    _, created = await retry_existing_analysis(session, settings, locked)
-                    assert created is False
-                assert len(analysis_calls) == before
-            else:
-                result = await read_analysis_result(settings, job)
-                assert result["analysis"]["facts"][0]["statement"] == "Report archived"
-            before = len(analysis_calls)
-            repeated = await execute_report_analysis(str(job.id))
-            assert repeated["state"] == job.state
-            assert len(analysis_calls) == before
-        assert len(analysis_calls) == 4
+                )
+            assert job is None, "Simulated execution reports must not enqueue analysis"
+            assert analysis_calls == []
+        assert len(analysis_calls) == 0

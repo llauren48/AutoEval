@@ -147,9 +147,6 @@ async def execute_report_analysis(analysis_id: str):
             ):
                 raise ValueError("Analysis target or resource identity changed")
             validate_url(target.base_url, settings.allowed_model_hosts)
-            job.state = "running"
-            job.started_at = utcnow()
-            job.error_code = None
             attempts = (
                 await session.scalars(
                     select(CaseExecutionRecord)
@@ -193,11 +190,19 @@ async def execute_report_analysis(analysis_id: str):
             locked = await session.scalar(
                 select(ReportAnalysis).where(ReportAnalysis.id == identifier).with_for_update()
             )
-            if locked.state != "running":
+            if locked.state == "running":
+                locked.state = "unresolved"
+                locked.error_code = "ANALYSIS_REDELIVERY_UNRESOLVED"
+                locked.finished_at = utcnow()
+                return _response("unresolved", locked, retry_sent=False)
+            if locked.state != "queued":
                 return _response(locked.state, locked, retry_sent=False)
             locked.input_object_key = input_key
             locked.input_sha256 = input_digest
             locked.evidence_catalog = evidence_input["evidence_catalog"]
+            locked.state = "running"
+            locked.started_at = utcnow()
+            locked.error_code = None
 
         identity = await asyncio.to_thread(
             inspect_executor, settings.docker_executable, resource.container_id

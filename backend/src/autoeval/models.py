@@ -78,7 +78,7 @@ class Outbox(Record, Base):
         DateTime(timezone=True), server_default=func.now()
     )
     __table_args__ = (
-        CheckConstraint("kind IN ('START_RUN','CANCEL_RUN')"),
+        CheckConstraint("kind IN ('START_RUN','CANCEL_RUN','ANALYZE_REPORT')"),
         CheckConstraint("state IN ('pending','delivered')"),
         CheckConstraint("attempt_count >= 0"),
         Index("ix_outbox_pending", "next_retry_at", postgresql_where=text("state = 'pending'")),

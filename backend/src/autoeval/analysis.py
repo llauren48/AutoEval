@@ -22,6 +22,10 @@ from autoeval.targets import TargetBinding
 HEX256 = re.compile(r"^[0-9a-f]{64}$")
 
 
+class AnalysisConfigurationError(ValueError):
+    """Analysis cannot be enabled without changing the original report outcome."""
+
+
 class ReportAnalysis(Record, Base):
     __tablename__ = "report_analysis"
     report_id: Mapped[uuid.UUID] = mapped_column(
@@ -47,7 +51,7 @@ class ReportAnalysis(Record, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         CheckConstraint("state IN ('queued','running','succeeded','failed','unresolved')"),
-        CheckConstraint("trigger IN ('report_created','manual_retry')"),
+        CheckConstraint("trigger IN ('report_created','manual_start','manual_retry')"),
         CheckConstraint("retry_count BETWEEN 0 AND 1"),
         CheckConstraint("report_sha256 ~ '^[0-9a-f]{64}$'"),
         CheckConstraint("snapshot_sha256 ~ '^[0-9a-f]{64}$'"),
@@ -61,7 +65,9 @@ def analysis_is_configured(settings) -> bool:
     )
 
 
-def analysis_status_for(job, settings):
+def analysis_status_for(job, settings, *, execution_origin="real"):
+    if execution_origin != "real":
+        return "not_enabled"
     if job is not None:
         return job.state
     return "not_queued" if analysis_is_configured(settings) else "not_enabled"
@@ -190,6 +196,14 @@ def validate_analysis_output(raw, evidence_catalog: dict) -> dict:
             ):
                 raise ValueError(f"Analysis {name} are invalid")
             citations(item["evidence_ids"], allow_empty=name == "inferences")
+            if (
+                name == "inferences"
+                and not item["evidence_ids"]
+                and not re.search(
+                    r"证据不足|insufficient evidence", item["statement"], re.IGNORECASE
+                )
+            ):
+                raise ValueError("Uncited inference must state insufficient evidence")
             section.append(item)
         sections[name] = section
     actions = body["recommended_actions"]
@@ -216,10 +230,9 @@ def analysis_prompt(evidence_input: dict) -> str:
         'JSON object with exactly "summary", "evidence_ids", "facts", "inferences", and '
         '"recommended_actions". Separate directly reported facts from model inferences. Facts and '
         'inferences are lists of {"statement", "evidence_ids"} objects; use an empty evidence_ids '
-        'list only for an inference that explicitly states evidence is insufficient. Every citation '
-        "must be copied from evidence_catalog without duplicates. recommended_actions must be a "
-        "list of concise strings.\n"
-        + canonical_manifest(evidence_input).decode()
+        'list only for an inference whose statement contains "insufficient evidence" or "证据不足". '
+        "Every citation must be copied from evidence_catalog without duplicates. recommended_actions must be a "
+        "list of concise strings.\n" + canonical_manifest(evidence_input).decode()
     )
 
 
@@ -229,7 +242,7 @@ async def enqueue_analysis(
     report,
     snapshot,
     *,
-    trigger: Literal["report_created", "manual_retry"],
+    trigger: Literal["report_created", "manual_start", "manual_retry"],
     baseline_comparison: dict | None = None,
 ):
     """Enqueue once inside the caller's transaction; report row lock serializes retries."""
@@ -242,19 +255,39 @@ async def enqueue_analysis(
         raise ValueError("Report is missing or changed")
     if snapshot.sha256 != report.snapshot_sha256:
         raise ValueError("Report snapshot digest is inconsistent")
+    if report.execution_origin != "real":
+        raise AnalysisConfigurationError("Report analysis requires real execution evidence")
     existing = await session.scalar(
         select(ReportAnalysis).where(ReportAnalysis.report_id == report.id)
     )
     if existing is not None:
         return existing, False
     if not analysis_is_configured(settings):
-        raise ValueError("Independent analysis target and resource are required")
-    if trigger not in ("report_created", "manual_retry"):
+        raise AnalysisConfigurationError("Independent analysis target and resource are required")
+    if trigger not in ("report_created", "manual_start", "manual_retry"):
         raise ValueError("Invalid analysis trigger")
     target = await session.get(TargetBinding, settings.analysis_target_id)
     resource = await session.get(ResourceBinding, settings.analysis_resource_id)
     if target is None or resource is None:
-        raise ValueError("Independent analysis target or resource is not registered")
+        raise AnalysisConfigurationError(
+            "Independent analysis target or resource is not registered"
+        )
+    evaluated = snapshot.canonical_body
+    evaluated_target = await session.get(TargetBinding, uuid.UUID(evaluated["target_id"]))
+    if evaluated_target is None or (
+        str(target.id) == evaluated["target_id"]
+        or str(target.model_version_id) == evaluated["model_version_id"]
+        or target.remote_model == evaluated["remote_model"]
+        or target.credential_ref == evaluated_target.credential_ref
+        or str(resource.id) == evaluated["resource_id"]
+        or (
+            evaluated.get("resource_kind") == "docker_local"
+            and resource.container_id == evaluated.get("container_id")
+        )
+    ):
+        raise AnalysisConfigurationError(
+            "Independent analysis target, model, credential, and resource are required"
+        )
     job = ReportAnalysis(
         id=uuid.uuid4(),
         report_id=report.id,
@@ -307,11 +340,7 @@ async def retry_existing_analysis(session, settings, job: ReportAnalysis):
     )
     if locked is None:
         raise ValueError("Report analysis is missing")
-    if (
-        locked.state != "failed"
-        or locked.retry_count != 0
-        or not analysis_is_configured(settings)
-    ):
+    if locked.state != "failed" or locked.retry_count != 0 or not analysis_is_configured(settings):
         return locked, False
     locked.state = "queued"
     locked.trigger = "manual_retry"
@@ -405,8 +434,8 @@ async def get_analysis(report_id: uuid.UUID, request: Request):
     return {"data": data, "request_id": request.state.request_id}
 
 
-@router.post("/{report_id}/analysis:retry", status_code=202)
-async def retry_analysis(report_id: uuid.UUID, request: Request):
+@router.post("/{report_id}/analysis:start", status_code=202)
+async def start_analysis(report_id: uuid.UUID, request: Request):
     from autoeval.evaluations import EvaluationReport
     from autoeval.models import EvaluationRun, RunSnapshot
 
@@ -435,20 +464,54 @@ async def retry_analysis(report_id: uuid.UUID, request: Request):
                 select(ReportAnalysis).where(ReportAnalysis.report_id == report.id)
             )
             if existing is not None:
-                job, created = await retry_existing_analysis(session, settings, existing)
-                if not created:
-                    raise HTTPException(
-                        409, "Analysis is active, complete, or has already been retried"
-                    )
-            else:
-                comparison = await current_baseline_comparison(session, report, snapshot)
-                job, _ = await enqueue_analysis(
-                    session,
-                    settings,
-                    report,
-                    snapshot,
-                    trigger="manual_retry",
-                    baseline_comparison=comparison,
+                raise HTTPException(409, "Analysis has already been queued")
+            comparison = await current_baseline_comparison(session, report, snapshot)
+            job, _ = await enqueue_analysis(
+                session,
+                settings,
+                report,
+                snapshot,
+                trigger="manual_start",
+                baseline_comparison=comparison,
+            )
+            data = analysis_data(job)
+    except SQLAlchemyError as exc:
+        raise HTTPException(503, "Analysis database unavailable") from exc
+    except ValueError as exc:
+        raise HTTPException(409, "Report analysis cannot be queued") from exc
+    return {"data": data, "request_id": request.state.request_id}
+
+
+@router.post("/{report_id}/analysis:retry", status_code=202)
+async def retry_analysis(report_id: uuid.UUID, request: Request):
+    from autoeval.evaluations import EvaluationReport
+    from autoeval.models import EvaluationRun
+
+    settings = request.app.state.settings
+    if not analysis_is_configured(settings):
+        raise HTTPException(503, "Independent analysis target and resource are not configured")
+    try:
+        async with request.app.state.sessions() as session, session.begin():
+            report = await session.scalar(
+                select(EvaluationReport)
+                .join(EvaluationRun, EvaluationRun.id == EvaluationReport.run_id)
+                .where(
+                    EvaluationReport.id == report_id,
+                    EvaluationReport.execution_origin == "real",
+                    EvaluationRun.trigger_scope == "local-operator:evaluation",
+                )
+            )
+            if report is None:
+                raise HTTPException(404, "Report not found")
+            existing = await session.scalar(
+                select(ReportAnalysis).where(ReportAnalysis.report_id == report.id)
+            )
+            if existing is None:
+                raise HTTPException(409, "Analysis has not been queued")
+            job, created = await retry_existing_analysis(session, settings, existing)
+            if not created:
+                raise HTTPException(
+                    409, "Analysis is active, complete, or has already been retried"
                 )
             data = analysis_data(job)
     except SQLAlchemyError as exc:
