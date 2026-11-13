@@ -170,7 +170,11 @@ async def execution_spec(config_id: uuid.UUID, request: Request):
 
 @router.get("")
 async def list_configs(
-    request: Request, offset: int = 0, limit: int = 100, config_id: uuid.UUID | None = None
+    request: Request,
+    offset: int = 0,
+    limit: int = 100,
+    config_id: uuid.UUID | None = None,
+    include_test: bool = False,
 ):
     from autoeval.profiles import ConfigDatasetBinding
 
@@ -181,6 +185,13 @@ async def list_configs(
             rows = (
                 await session.scalars(
                     select(TestConfigVersion)
+                    .where(
+                        True
+                        if include_test or config_id
+                        else ~TestConfigVersion.config_key.op("~")(
+                            "^(fixture-|browser-|model-browser-|navigation-|pipeline-|TEST-)"
+                        )
+                    )
                     .where(TestConfigVersion.id == config_id if config_id else True)
                     .order_by(TestConfigVersion.created_at.desc(), TestConfigVersion.id.desc())
                     .offset(offset)

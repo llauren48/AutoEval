@@ -165,7 +165,11 @@ async def check_connection(target_id: uuid.UUID, request: Request):
 
 @router.get("/target-bindings")
 async def list_targets(
-    request: Request, offset: int = 0, limit: int = 200, target_id: uuid.UUID | None = None
+    request: Request,
+    offset: int = 0,
+    limit: int = 200,
+    target_id: uuid.UUID | None = None,
+    include_test: bool = False,
 ):
     if offset < 0 or not 1 <= limit <= 200:
         raise HTTPException(422, "Invalid pagination")
@@ -178,6 +182,13 @@ async def list_targets(
                     .join(Asset, Asset.id == AssetVersion.asset_id)
                     .outerjoin(ModelConfigBinding, ModelConfigBinding.model_asset_id == Asset.id)
                     .where(TargetBinding.id == target_id if target_id else True)
+                    .where(
+                        True
+                        if include_test or target_id
+                        else ~Asset.asset_key.op("~")(
+                            r"^(navigation-[a-f0-9]{32}|model-browser-[a-f0-9]{10})$"
+                        )
+                    )
                     .order_by(TargetBinding.created_at.desc(), TargetBinding.id.desc())
                     .offset(offset)
                     .limit(limit + 1)

@@ -233,7 +233,9 @@ async def register(body: ManifestInput, request: Request):
 
 
 @router.get("")
-async def list_manifests(request: Request, offset: int = 0, limit: int = 50):
+async def list_manifests(
+    request: Request, offset: int = 0, limit: int = 50, include_test: bool = False
+):
     if offset < 0 or not 1 <= limit <= 200:
         raise HTTPException(422, "Invalid pagination")
     try:
@@ -241,6 +243,19 @@ async def list_manifests(request: Request, offset: int = 0, limit: int = 50):
             rows = (
                 await session.scalars(
                     select(DatasetManifest)
+                    .where(
+                        True
+                        if include_test
+                        else DatasetManifest.dataset_version_id.in_(
+                            select(AssetVersion.id)
+                            .join(Asset, Asset.id == AssetVersion.asset_id)
+                            .where(
+                                ~Asset.asset_key.op("~")(
+                                    r"^(fixture-|browser-|model-browser-|navigation-|pipeline-|TEST-)"
+                                )
+                            )
+                        )
+                    )
                     .order_by(DatasetManifest.created_at.desc(), DatasetManifest.id.desc())
                     .offset(offset)
                     .limit(limit + 1)

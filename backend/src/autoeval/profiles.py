@@ -103,7 +103,9 @@ async def register_profile(body: ProfileInput, request: Request):
                 lite = await session.get(DatasetManifest, body.lite_manifest_id)
                 if lite is None or lite.scope != "lite" or lite.parent_id != full.id:
                     raise HTTPException(422, "Lite must belong to the selected full manifest")
-            if (body.dataset_name in {"DeepSWE", "AutomationBench"}) != (body.tool.family == "harbor"):
+            if (body.dataset_name in {"DeepSWE", "AutomationBench"}) != (
+                body.tool.family == "harbor"
+            ):
                 raise HTTPException(422, "Dataset and tool family do not match")
             row = EvaluationProfile(
                 profile_key=body.profile_key,
@@ -127,7 +129,9 @@ async def register_profile(body: ProfileInput, request: Request):
 
 
 @router.get("")
-async def list_profiles(request: Request, offset: int = 0, limit: int = 50):
+async def list_profiles(
+    request: Request, offset: int = 0, limit: int = 50, include_test: bool = False
+):
     if offset < 0 or not 1 <= limit <= 200:
         raise HTTPException(422, "Invalid pagination")
     try:
@@ -135,6 +139,13 @@ async def list_profiles(request: Request, offset: int = 0, limit: int = 50):
             rows = (
                 await session.scalars(
                     select(EvaluationProfile)
+                    .where(
+                        True
+                        if include_test
+                        else ~EvaluationProfile.profile_key.op("~")(
+                            "^(fixture-|browser-|model-browser-|navigation-|pipeline-|TEST-)"
+                        )
+                    )
                     .order_by(EvaluationProfile.created_at.desc(), EvaluationProfile.id.desc())
                     .offset(offset)
                     .limit(limit + 1)

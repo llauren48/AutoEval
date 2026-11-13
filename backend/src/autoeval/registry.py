@@ -204,7 +204,9 @@ async def register_model(body: ModelCreate, request: Request):
 
 
 @router.get("")
-async def list_models(request: Request, offset: int = 0, limit: int = 200):
+async def list_models(
+    request: Request, offset: int = 0, limit: int = 200, include_test: bool = False
+):
     if offset < 0 or not 1 <= limit <= 200:
         raise HTTPException(422, "Invalid pagination")
     try:
@@ -212,6 +214,13 @@ async def list_models(request: Request, offset: int = 0, limit: int = 200):
             rows = (
                 await session.execute(
                     select(Asset, ModelConfigBinding)
+                    .where(
+                        True
+                        if include_test
+                        else ~Asset.asset_key.op("~")(
+                            "^(fixture-|browser-|model-browser-|navigation-|pipeline-|TEST-)"
+                        )
+                    )
                     .outerjoin(ModelConfigBinding, ModelConfigBinding.model_asset_id == Asset.id)
                     .where(Asset.kind == "model")
                     .order_by(Asset.created_at.desc(), Asset.id.desc())

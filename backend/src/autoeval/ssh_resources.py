@@ -10,7 +10,7 @@ from typing import Literal
 import paramiko
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
-from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint, select
+from sqlalchemy import CheckConstraint, ForeignKey, String, UniqueConstraint, and_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -171,7 +171,9 @@ async def register(body: SSHResourceInput, request: Request):
 
 
 @router.get("")
-async def list_resources(request: Request, offset: int = 0, limit: int = 50):
+async def list_resources(
+    request: Request, offset: int = 0, limit: int = 50, include_test: bool = False
+):
     if offset < 0 or not 1 <= limit <= 200:
         raise HTTPException(422, "Invalid pagination")
     try:
@@ -179,6 +181,17 @@ async def list_resources(request: Request, offset: int = 0, limit: int = 50):
             rows = (
                 await session.scalars(
                     select(SSHResourceBinding)
+                    .where(
+                        True
+                        if include_test
+                        else ~and_(
+                            SSHResourceBinding.host.in_(["127.0.0.1", "localhost", "::1"]),
+                            SSHResourceBinding.port.in_([1, 2222]),
+                            SSHResourceBinding.binding_key.op("~")(
+                                r"^(ssh-registry-[a-f0-9]{32}|browser-ssh-[a-f0-9]{12}|ssh-native-pilot-[a-f0-9]{8})$"
+                            ),
+                        )
+                    )
                     .order_by(SSHResourceBinding.created_at.desc(), SSHResourceBinding.id.desc())
                     .offset(offset)
                     .limit(limit + 1)

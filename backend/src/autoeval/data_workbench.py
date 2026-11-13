@@ -160,13 +160,18 @@ async def validate_report(request, session, entry):
 
 
 @router.get("/entries")
-async def entries(request: Request, offset: int = 0, limit: int = 20):
+async def entries(request: Request, offset: int = 0, limit: int = 20, include_test: bool = False):
     if offset < 0 or not 1 <= limit <= 100:
         raise HTTPException(422, "Invalid pagination")
     async with request.app.state.sessions() as session:
         rows = (
             await session.scalars(
                 select(LeaderboardRecord)
+                .where(
+                    True
+                    if include_test
+                    else ~LeaderboardRecord.source_key.op("~")("^test-[a-f0-9]{32}$")
+                )
                 .order_by(LeaderboardRecord.created_at.desc(), LeaderboardRecord.id.desc())
                 .offset(offset)
                 .limit(limit + 1)
