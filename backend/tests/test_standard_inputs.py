@@ -68,7 +68,7 @@ def test_compile_full_inputs_without_activating_execution(index):
     )
     assert result["input_ready"]
     assert not result["execution_enabled"]
-    assert result["approval_status"] == "not_approved"
+    assert result["approval_status"] == "not_required"
     assert result["cli_flags"] == []
     assert "api_key" not in result["config"]["params"]
     assert result["runtime_config"]["execution"] == "docker"

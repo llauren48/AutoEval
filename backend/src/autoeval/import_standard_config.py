@@ -25,7 +25,7 @@ class StandardConfigInput(BaseModel):
     source_url: str = Field(max_length=2048)
     source_revision: str = Field(min_length=1, max_length=256)
     source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    approved_by: str = Field(min_length=1, max_length=256)
+    approved_by: str | None = Field(default=None, min_length=1, max_length=256)
 
     @field_validator("items")
     @classmethod
@@ -106,7 +106,7 @@ async def import_config(session, body: StandardConfigInput):
         version_label=body.version_label,
         kind="standard",
         content_hash=digest,
-        created_by=body.approved_by,
+        created_by=body.approved_by or "local-operator",
         source_url=body.source_url,
         source_revision=body.source_revision,
         source_sha256=body.source_sha256,

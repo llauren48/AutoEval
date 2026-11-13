@@ -262,6 +262,7 @@ class Sync(Strict):
 
 
 class CompileInput(Strict):
+    input_policy: str = Field(default="legacy", pattern=r"^(repository|legacy)$")
     adaptor_revision: str = Field(
         default=CURRENT_ADAPTOR,
         pattern="^(955089ab32ef696c231d628f5ad0d9da28f430c4|1fb877ace4a087cb805e9a3d5878dcce6349bc35)$",
@@ -509,7 +510,10 @@ def compile_config(entry, body, target=None):
             safe_json(entry["files"]["benchmark_config.json"]["raw"]), "standard-repository-startup"
         )
     for overlay, name in [
-        (body.template, "template:" + body.template_version),
+        (
+            body.template if body.input_policy == "legacy" else {},
+            "template:" + body.template_version,
+        ),
         (body.adjustments, "user-adjustment"),
     ]:
         if overlay:
@@ -522,7 +526,9 @@ def compile_config(entry, body, target=None):
     apply(standard, "standard-lock")
     validate_config(base)
     blockers = []
-    if entry["startup_missing"] and not body.template.get("params"):
+    if entry["startup_missing"] and (
+        body.input_policy == "repository" or not body.template.get("params")
+    ):
         blockers.append("startup_template_required")
     if body.model_id is None:
         blockers.append("model_mapping_missing")
@@ -575,6 +581,7 @@ def compile_config(entry, body, target=None):
             blockers.append("standard_lock_conflict:" + key)
     tool_config, runtime_config, cli_flags = separate_runtime(base, body.adaptor_revision)
     result = {
+        "input_policy": body.input_policy,
         "config": tool_config,
         "runtime_config": runtime_config,
         "template_version": body.template_version,
@@ -585,7 +592,7 @@ def compile_config(entry, body, target=None):
         "blocking_reasons": sorted(set(blockers)),
         "input_ready": not blockers,
         "execution_enabled": False,
-        "approval_status": "not_approved",
+        "approval_status": "not_required",
         "adaptor_revision": body.adaptor_revision,
         "cli_flags": cli_flags,
         "credential_binding": {"target_id": str(target.id), "injection": "runtime-only"}
@@ -780,7 +787,7 @@ async def preview_data(bundle, request):
         "sha256": digest(bundle.model_dump()),
         "entries": entries,
         "execution_enabled": False,
-        "approval_status": "not_approved",
+        "approval_status": "not_required",
     }
 
 
@@ -821,6 +828,28 @@ async def import_bundle(body: Confirm, request: Request):
     return envelope(result, request)
 
 
+def input_readiness(payload, compilation=None):
+    """Repository completeness is independent of target and runtime readiness."""
+    missing = []
+    startup = payload["files"].get("benchmark_config.json")
+    if not startup:
+        missing.append("repository_benchmark_config_missing")
+    else:
+        try:
+            validate_config(safe_json(startup["raw"]))
+        except ValueError:
+            missing.append("repository_benchmark_config_invalid")
+    blockers = (compilation or {}).get("blocking_reasons", [])
+    return {
+        "standard_config_status": "missing" if missing else "complete",
+        "standard_config_missing": missing,
+        "service_status": "not_bound"
+        if not compilation or "target_missing" in blockers
+        else "bound",
+        "environment_status": "not_verified",
+    }
+
+
 def row_data(row):
     return {
         "id": str(row.id),
@@ -830,10 +859,37 @@ def row_data(row):
         "benchmark": row.benchmark,
         "sha256": row.content_sha256,
         "created_at": row.created_at.isoformat(),
+        **input_readiness(row.payload),
         **row.payload,
         "execution_enabled": False,
-        "approval_status": "not_approved",
+        "approval_status": "not_required",
     }
+
+
+@router.get("/filters")
+async def filter_options(request: Request):
+    async with request.app.state.sessions() as session:
+        rows = (
+            await session.execute(
+                select(
+                    StandardInputVersion.revision,
+                    StandardInputVersion.source_model,
+                    StandardInputVersion.benchmark,
+                )
+                .where(~StandardInputVersion.source_model.startswith("TEST-"))
+                .order_by(StandardInputVersion.created_at.desc(), StandardInputVersion.id.desc())
+            )
+        ).all()
+        revisions = list(dict.fromkeys(row.revision for row in rows))
+        return envelope(
+            {
+                "revisions": revisions,
+                "latest_revision": revisions[0] if revisions else None,
+                "models": sorted({row.source_model for row in rows}),
+                "datasets": sorted({row.benchmark for row in rows}),
+            },
+            request,
+        )
 
 
 @router.get("")
@@ -843,6 +899,9 @@ async def versions(
     limit: int = 20,
     model_id: uuid.UUID | None = None,
     include_test: bool = False,
+    revision: str = "latest",
+    source_model: str | None = None,
+    dataset: str | None = None,
 ):
     if offset < 0 or not 1 <= limit <= 100:
         raise HTTPException(422, "Invalid pagination")
@@ -850,6 +909,21 @@ async def versions(
         query = select(StandardInputVersion)
         if not include_test:
             query = query.where(~StandardInputVersion.source_model.startswith("TEST-"))
+        if revision == "latest":
+            latest_revision = await session.scalar(
+                query.with_only_columns(StandardInputVersion.revision)
+                .order_by(StandardInputVersion.created_at.desc(), StandardInputVersion.id.desc())
+                .limit(1)
+            )
+            query = query.where(StandardInputVersion.revision == latest_revision)
+        elif revision != "all":
+            query = query.where(StandardInputVersion.revision == revision)
+        if source_model:
+            query = query.where(
+                func.lower(StandardInputVersion.source_model) == source_model.lower()
+            )
+        if dataset:
+            query = query.where(func.lower(StandardInputVersion.benchmark) == dataset.lower())
         if model_id:
             query = query.where(
                 StandardInputVersion.id.in_(
@@ -891,7 +965,11 @@ async def versions(
         return {
             **envelope(
                 [
-                    {**row_data(row), "latest_compilation": latest.get(row.id)}
+                    {
+                        **row_data(row),
+                        "latest_compilation": latest.get(row.id),
+                        **input_readiness(row.payload, latest.get(row.id)),
+                    }
                     for row in rows[:limit]
                 ],
                 request,
@@ -922,6 +1000,8 @@ async def detail(input_id: uuid.UUID, request: Request):
 def autocomplete_template(entry):
     """Build a deterministic input-only template from pinned repository evidence."""
     source = entry["files"].get("benchmark_config.json")
+    if not source:
+        return {}
     template = (
         safe_json(source["raw"])
         if source
@@ -984,9 +1064,11 @@ async def autocomplete_input(input_id: uuid.UUID, body: CompileInput, request: R
                     "target_id": target.id if target else None,
                     "template": template,
                     "template_version": version,
+                    "input_policy": "repository",
                 }
             )
             preview = compile_config(row.payload, candidate, target)
+            preview.update(input_readiness(row.payload, preview))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         return envelope(
@@ -995,7 +1077,7 @@ async def autocomplete_input(input_id: uuid.UUID, body: CompileInput, request: R
                 "preview": preview,
                 "template_source": "benchmark_config.json"
                 if not row.payload["startup_missing"]
-                else "platform-standard-template.v1:" + row.revision,
+                else "repository-startup-missing:" + row.revision,
                 "requires_confirmation": True,
                 "notes": [
                     "模型名忽略大小写匹配；只有唯一模型与唯一服务可自动选择。",

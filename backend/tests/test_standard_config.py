@@ -255,7 +255,8 @@ def test_standard_metadata_has_postgresql_sql_constraints():
         if isinstance(constraint, CheckConstraint)
     ]
     metadata = next((check for check in checks if "source_url IS NOT NULL" in check), "")
-    for column in ("source_url", "source_revision", "source_sha256", "approved_by"):
+    assert "approved_by IS NOT NULL" not in metadata
+    for column in ("source_url", "source_revision", "source_sha256"):
         assert f"{column} IS NOT NULL" in metadata
         assert f"{column} IS NULL" in metadata
     assert any("source_url LIKE 'https://%'" in check for check in checks)

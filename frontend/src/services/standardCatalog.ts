@@ -10,7 +10,7 @@ export async function standardCatalog(signal?: AbortSignal): Promise<StandardCat
   const result = new Map<string, StandardCatalogEntry>();
   let offset: number | null = 0;
   while (offset !== null) {
-    const page: { data: StandardCatalogEntry[]; next_offset: number | null } = await apiGetPage(`/standard-inputs?offset=${offset}&limit=100`, signal);
+    const page: { data: StandardCatalogEntry[]; next_offset: number | null } = await apiGetPage(`/standard-inputs?revision=all&offset=${offset}&limit=100`, signal);
     for (const row of page.data) {
       const key = `${row.source_model}/${row.benchmark}`;
       if (!result.has(key)) result.set(key, row);

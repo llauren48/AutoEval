@@ -34,7 +34,7 @@ class TestConfigVersion(Record, Base):
         CheckConstraint("kind IN ('standard','custom')"),
         CheckConstraint(
             "(kind = 'standard' AND source_url IS NOT NULL AND source_revision IS NOT NULL "
-            "AND source_sha256 IS NOT NULL AND approved_by IS NOT NULL) OR "
+            "AND source_sha256 IS NOT NULL) OR "
             "(kind = 'custom' AND source_url IS NULL AND source_revision IS NULL "
             "AND source_sha256 IS NULL AND approved_by IS NULL)",
             name="ck_standard_config_metadata",
@@ -211,6 +211,7 @@ async def list_configs(
                     "source_revision": v.source_revision,
                     "source_sha256": v.source_sha256,
                     "approved_by": v.approved_by,
+                    "approval_status": "not_required",
                     "items": {
                         i.dataset_key: i.parameter_values
                         for i in items
@@ -258,7 +259,9 @@ async def create_version(body: CreateConfig, request: Request):
     # The first configuration API writes custom revisions only. Standard source
     # import will be a separate privileged command; never trust client kind.
     values = {k: v.model_dump() for k, v in body.items.items()}
-    if any(k not in {"GPQA", "GPQA_Diamond", "MMMU-Pro", "DeepSWE", "AutomationBench"} for k in values):
+    if any(
+        k not in {"GPQA", "GPQA_Diamond", "MMMU-Pro", "DeepSWE", "AutomationBench"} for k in values
+    ):
         raise HTTPException(422, "Unknown dataset")
     if body.profile_bindings and body.profile_bindings.keys() != values.keys():
         raise HTTPException(422, "Profile bindings must cover every configured dataset")
