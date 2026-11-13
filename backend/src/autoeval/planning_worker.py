@@ -1,7 +1,7 @@
 """Durable planning worker: python -m autoeval.planning_worker."""
 
 import asyncio
-import tempfile
+import os
 from datetime import UTC, datetime
 
 from sqlalchemy import select, text
@@ -11,7 +11,6 @@ from autoeval.config import get_settings
 from autoeval.db import create_database
 from autoeval.models import RunSnapshot
 from autoeval.planning import PlanningArtifact, PlanningJob, artifact, current_preflight
-from autoeval.planning_engine import calculate
 from autoeval.planning_transport import transport
 from autoeval.secrets import FileSecretStore
 from autoeval.targets import TargetBinding, validate_url
@@ -85,18 +84,55 @@ async def execute_job(sessions, settings, identifier):
             resource = snapshot.payload if snapshot else None
             resource_sha = snapshot.sha256 if snapshot else None
             profile = curve.payload["curve"]
-        # Each calculation owns a fresh snapshot rebuilt from authoritative archived evidence.
-        # No shared mutable SQLite file or multiple-writer race exists.
-        with tempfile.TemporaryDirectory(prefix="autoeval-plan-") as directory:
-            report = await asyncio.to_thread(
-                calculate,
-                inputs,
-                profile,
-                resource,
-                history,
-                directory,
-                recommend=inputs.get("recommend", True),
+        if not snapshot or not snapshot.payload.get("planner_ready"):
+            raise ValueError("Fresh pinned container preflight required")
+        key = str(identifier)
+        if previous == "pending":
+            job = await adapter.submit(
+                {
+                    "kind": "planner_plan",
+                    "credential": "",
+                    "inputs": inputs,
+                    "curve": profile,
+                    "resource": resource,
+                    "history": history,
+                },
+                key,
             )
+        else:
+            from autoeval.contracts import JobRef
+
+            job = JobRef(external_job_id=key, submission_key=key)
+        while True:
+            async with sessions() as session:
+                cancelled = (await session.get(PlanningJob, identifier)).cancel_requested
+            observed = (
+                await adapter.cancel(job, "cancel:" + key)
+                if cancelled
+                else await adapter.status(job)
+            )
+            if observed.state in {"unknown", "cleaned"}:
+                await set_job(
+                    sessions,
+                    identifier,
+                    state="unresolved",
+                    result={"reason": "remote_plan_unknown"},
+                )
+                return
+            if observed.state in {"succeeded", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(2)
+        if observed.state != "succeeded" or cancelled:
+            await set_job(
+                sessions,
+                identifier,
+                state="cancelled" if cancelled else "failed",
+                result={"reason": observed.reason or "remote_plan_failed"},
+            )
+            await adapter.cleanup(job)
+            return
+        collected = await adapter.collect(job)
+        report = collected["result"]["report"]
         async with sessions() as session, session.begin():
             saved = await artifact(session, settings, "plan", {"inputs": inputs, "report": report})
         await set_job(
@@ -109,6 +145,7 @@ async def execute_job(sessions, settings, identifier):
                 "resource_sha256": resource_sha,
             },
         )
+        await adapter.cleanup(job)
         return
     # Remote probe submission is never automatically repeated after an uncertain response.
     async with sessions() as session:
@@ -142,6 +179,12 @@ async def execute_job(sessions, settings, identifier):
         observation = (
             await adapter.cancel(job, "cancel:" + key) if cancelled else await adapter.status(job)
         )
+        try:
+            progress = await adapter.progress(job)
+            if progress:
+                await set_job(sessions, identifier, result={"progress": progress})
+        except Exception:  # noqa: BLE001, S110 -- monitoring failure must not restart model requests
+            pass
         if observation.state in {"succeeded", "failed", "cancelled"}:
             break
         if observation.state in {"unknown", "cleaned"}:
@@ -170,7 +213,13 @@ async def execute_job(sessions, settings, identifier):
                 },
             )
         await set_job(
-            sessions, identifier, state="completed", result={"throughput_profile_id": str(saved.id)}
+            sessions,
+            identifier,
+            state="completed",
+            result={
+                "throughput_profile_id": str(saved.id),
+                "progress": result["result"].get("progress"),
+            },
         )
     else:
         await set_job(
@@ -197,7 +246,12 @@ async def serve():
                         select(PlanningJob.id)
                         .where(
                             (
-                                PlanningJob.state.in_(["pending", "running"])
+                                PlanningJob.kind.in_(
+                                    os.environ.get("AE_PLANNING_JOB_KINDS", "preflight,plan").split(
+                                        ","
+                                    )
+                                )
+                                & PlanningJob.state.in_(["pending", "running"])
                                 | (
                                     (PlanningJob.state == "unresolved")
                                     & PlanningJob.cancel_requested.is_(True)
@@ -222,7 +276,9 @@ async def serve():
                     except Exception:  # noqa: BLE001 -- isolate third-party errors without leaking credentials
                         async with sessions() as session:
                             failed = await session.get(PlanningJob, identifier)
-                            uncertain = failed.kind == "probe" and failed.state == "running"
+                            uncertain = (
+                                failed.kind in {"probe", "plan"} and failed.state == "running"
+                            )
                         await set_job(
                             sessions,
                             identifier,

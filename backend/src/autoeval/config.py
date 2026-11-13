@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    planning_container_config: str | None = None
     model_config = SettingsConfigDict(env_prefix="AE_", env_file=".env", extra="ignore")
     environment: Literal["development", "test", "production"] = "development"
     auth_mode: Literal["local"] = "local"

@@ -1,7 +1,10 @@
 """Controlled executor extension; legacy diagnostic transports keep their contract."""
 
+import ast
 import asyncio
+import base64
 import hashlib
+import importlib.metadata
 import json
 import stat
 from pathlib import Path
@@ -13,6 +16,143 @@ from autoeval.ssh_executor import SSHExecutor
 from autoeval.ssh_resources import SSHResourceBinding, connection_for
 
 RUNTIME = Path(__file__).with_name("planning_runtime.py")
+
+
+def runtime_files():
+    """Ship exact calculation and validation source without importing the API in containers."""
+    source = RUNTIME.with_name("standard_inputs.py").read_text(encoding="utf-8")
+    names = {"COMMON", "ACCURACY", "AGENT", "digest", "leaves", "validate_config", "reject_secrets"}
+    pieces = []
+    for node in ast.parse(source).body:
+        name = getattr(node, "name", None)
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+        if name in names:
+            pieces.append(ast.get_source_segment(source, node))
+    contract = "import hashlib\nimport json\n" + "\n\n".join(pieces)
+    engine = (
+        RUNTIME.with_name("planning_engine.py")
+        .read_text(encoding="utf-8")
+        .replace("from autoeval.standard_inputs import", "from planning_contract import")
+    )
+    return {
+        "planning_runtime.py": RUNTIME.read_bytes(),
+        "planning_calculation.py": engine.encode(),
+        "planning_contract.py": contract.encode(),
+    }
+
+
+async def read_container_progress(adapter, job):
+    import uuid
+
+    key = str(uuid.UUID(job.submission_key))
+    root = (
+        adapter.remote_dir + "/jobs"
+        if isinstance(adapter, PlanningRemoteContainer)
+        else "/work/autoeval-jobs"
+    )
+    script = "import pathlib,sys,json;p=pathlib.Path(sys.argv[1]);assert not p.is_symlink();print(p.read_text() if p.is_file() else '{}')"
+    raw = await asyncio.to_thread(
+        adapter.command,
+        [
+            "exec",
+            adapter.container_id,
+            "python3",
+            "-c",
+            script,
+            root + "/" + key + "/progress.json",
+        ],
+    )
+    value = json.loads(raw)
+    if value and value.get("job_id") != key:
+        raise ValueError("Progress belongs to another job")
+    return value
+
+
+class PlanningRemoteContainer(DockerExecutor):
+    """Docker lifecycle runs over pinned SSH; no host Planner execution or SFTP ambiguity."""
+
+    def __init__(self, connection, container_id, image_id):
+        super().__init__("docker", container_id, image_id)
+        self.control = SSHExecutor(connection)
+        self.files = {"job_runtime.py": self.runtime.read_bytes(), **runtime_files()}
+        distribution = importlib.metadata.distribution("autoeval-task-planner")
+        direct = json.loads(distribution.read_text("direct_url.json"))
+        from autoeval.planning_runtime import PLANNER_REVISION
+
+        if direct.get("vcs_info", {}).get("commit_id") != PLANNER_REVISION:
+            raise ValueError("Local Planner distribution does not match pin")
+        for item in distribution.files:
+            name = str(item).replace("\\", "/")
+            if ".." in Path(name).parts or "__pycache__" in name or name.endswith(".pyc"):
+                continue
+            if name.startswith("autoeval_planner/") or ".dist-info/" in name:
+                self.files["deps/" + name] = distribution.locate_file(item).read_bytes()
+        sha = hashlib.sha256(b"".join(self.files[k] for k in sorted(self.files))).hexdigest()
+        self.remote_dir = "/tmp/autoeval-planning-runtime/" + sha
+
+    def command(self, arguments, payload=None):
+        with self.control.connect() as client:
+            if arguments[0] == "exec":
+                index = arguments.index(self.container_id) + 1
+                if arguments[index] == "python":
+                    arguments = [*arguments[:index], "python3", *arguments[index + 1 :]]
+                arguments = [
+                    *arguments[:index],
+                    "env",
+                    "PYTHONPATH=" + self.remote_dir + "/deps",
+                    "AE_JOB_ROOT=" + self.remote_dir + "/jobs",
+                    *arguments[index:],
+                ]
+            return self.control.command(client, ["docker", *arguments], payload)
+
+    async def validate(self, spec):
+        if spec.get("kind") != "framework_smoke":
+            validate_spec(spec)
+        raw = await asyncio.to_thread(self.command, ["inspect", self.container_id])
+        row = json.loads(raw)[0]
+        if (
+            row["Id"] != self.container_id
+            or row["Image"] != self.image_id
+            or not row["State"]["Running"]
+        ):
+            raise ValueError("Pinned planning container changed or stopped")
+
+    async def install_runtime(self):
+        script = "import pathlib,sys,json,base64,hashlib; root=pathlib.Path(sys.argv[1]); files=json.load(sys.stdin); root.mkdir(parents=True,exist_ok=True);\nfor name,encoded in files.items():\n p=root/name; assert p.resolve().is_relative_to(root.resolve()) and not p.is_symlink(); data=base64.b64decode(encoded); p.parent.mkdir(parents=True,exist_ok=True); assert not p.exists() or p.read_bytes()==data; p.write_bytes(data); p.chmod(0o600)\nprint(json.dumps({name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in files}))"
+        payload = json.dumps(
+            {k: base64.b64encode(v).decode() for k, v in self.files.items()}
+        ).encode()
+        actual = json.loads(
+            await asyncio.to_thread(
+                self.command,
+                ["exec", "-i", self.container_id, "python3", "-c", script, self.remote_dir],
+                payload,
+            )
+        )
+        if actual != {k: hashlib.sha256(v).hexdigest() for k, v in self.files.items()}:
+            raise ValueError("Runtime readback mismatch")
+
+    async def progress(self, job):
+        return await read_container_progress(self, job)
+
+    async def preflight(self, tasks=None):
+        await self.validate({"kind": "framework_smoke", "duration_seconds": 0})
+        await self.install_runtime()
+        return json.loads(
+            await asyncio.to_thread(
+                self.command,
+                [
+                    "exec",
+                    "-i",
+                    self.container_id,
+                    "python3",
+                    self.remote_dir + "/planning_runtime.py",
+                    "preflight",
+                ],
+                json.dumps(tasks).encode(),
+            )
+        )
 
 
 class PlanningDocker(DockerExecutor):
@@ -45,10 +185,23 @@ class PlanningDocker(DockerExecutor):
 
     async def install_runtime(self):
         await super().install_runtime()
-        await asyncio.to_thread(
-            self.command,
-            ["cp", str(RUNTIME), f"{self.container_id}:{self.remote_dir}/planning_runtime.py"],
-        )
+        for name, data in runtime_files().items():
+            await asyncio.to_thread(
+                self.command,
+                [
+                    "exec",
+                    "-i",
+                    self.container_id,
+                    "python",
+                    "-c",
+                    "import pathlib,sys;p=pathlib.Path(sys.argv[1]);p.write_bytes(sys.stdin.buffer.read());p.chmod(0o600)",
+                    self.remote_dir + "/" + name,
+                ],
+                data,
+            )
+
+    async def progress(self, job):
+        return await read_container_progress(self, job)
 
     async def preflight(self, tasks=None):
         await self.validate({"kind": "framework_smoke", "duration_seconds": 0})
@@ -165,7 +318,20 @@ async def transport(session, settings, inputs):
         row = await session.get(SSHResourceBinding, inputs["resource_id"])
         if row is None:
             raise ValueError("SSH binding missing")
-        return PlanningSSH(connection_for(row, settings))
+        import os
+
+        config_path = (
+            os.environ.get("AE_PLANNING_CONTAINER_CONFIG") or settings.planning_container_config
+        )
+        if not config_path:
+            raise ValueError("Explicit remote planning container binding required")
+        bindings = json.loads(Path(config_path).read_text(encoding="utf-8"))
+        binding = bindings.get(str(row.id))
+        if not binding:
+            raise ValueError("Selected SSH resource has no pinned planning container")
+        return PlanningRemoteContainer(
+            connection_for(row, settings), binding["container_id"], binding["image_id"]
+        )
     row = await session.get(ResourceBinding, inputs["resource_id"])
     if row is None:
         raise ValueError("Docker binding missing")

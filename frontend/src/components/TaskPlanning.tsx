@@ -1,3 +1,4 @@
+import { ProbeProgress } from "./ProbeProgress";
 import { useEffect, useRef, useState } from "react";
 import { apiGet, apiGetPage, apiPost } from "../services/api";
 import { type Resource, type Target, useOptions } from "../services/evaluation";
@@ -14,12 +15,12 @@ type Report = {
   tasks: { task_id: string; standalone_duration_sec: number; scheduled_duration_sec: number; scheduled_start_sec: number; scheduled_end_sec: number }[];
 };
 type Options = {
-  compilations: { id: string; label?: string; sha256: string; target_id: string; dataset: string; input_ready: boolean; config: { subcommand: string; params: Record<string, unknown> } }[];
-  manifests: { id: string; dataset: string; scope: string; sample_count: number }[];
+  compilations: { adaptor_revision?: string; runtime_config?: Record<string, unknown>; id: string; label?: string; sha256: string; target_id: string; dataset: string; input_ready: boolean; config: { subcommand: string; params: Record<string, unknown> } }[];
+  manifests: { id: string; dataset: string; scope: string; sample_count: number; sha256?: string }[];
   curves: { id: string; target_id: string; resource_id: string; resource_kind: string; measured_at: string }[];
 };
 type DatasetCheck = { task_id: string; dataset: string; data_path: string | null; tool_revision: string | null; expected_tool_revision: string; blocking_reasons: string[] };
-type Job = { id: string; state: string; result?: { report?: Report; throughput_profile_id?: string; reason?: string; execution_ready?: boolean; supported_datasets?: string[]; blocking_reasons?: string[]; dataset_checks?: DatasetCheck[]; tool_versions?: Record<string, { expected: string; actual: string | null }> } };
+type Job = { id: string; state: string; created_at?: string; updated_at?: string; result?: { progress?: { stage: string; current_concurrency?: number | null; completed_levels: number; total_levels: number; observed_at?: string } | null; report?: Report; throughput_profile_id?: string; reason?: string; execution_ready?: boolean; supported_datasets?: string[]; blocking_reasons?: string[]; dataset_checks?: DatasetCheck[]; tool_versions?: Record<string, { expected: string; actual: string | null }> } };
 const datasets = ["GPQA", "MMMU-Pro", "DeepSWE"];
 const duration = (seconds: number | null | undefined) => seconds == null ? "未知" : `${Math.floor(seconds / 3600)}小时 ${Math.floor(seconds % 3600 / 60)}分 ${Math.round(seconds % 60)}秒`;
 
@@ -48,7 +49,7 @@ export function TaskPlanning() {
   const [enabled, setEnabled] = useState<string[]>([]);
   const [curve, setCurve] = useState("");
   const [parallel, setParallel] = useState(1);
-  const [recommend, setRecommend] = useState(true);
+  const [recommend, setRecommend] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [probe, setProbe] = useState<Job | null>(null);
   const [preflight, setPreflight] = useState<Job | null>(null);
@@ -76,7 +77,24 @@ export function TaskPlanning() {
       if (page.next_offset != null && page.next_offset <= offset) throw new Error("规划选项分页异常");
       offset = page.next_offset;
     }
-    collected.manifests = [...new Map(collected.manifests.map(m => [m.id, m])).values()];
+    const stable = (value: unknown): string => {
+      if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+      if (value && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${JSON.stringify(k)}:${stable(v)}`).join(",")}}`;
+      return JSON.stringify(value);
+    };
+    const seen = new Set<string>();
+    collected.compilations = collected.compilations.filter(c => {
+      const params = Object.fromEntries(Object.entries(c.config.params).filter(([key]) => !["work_dir", "container_name"].includes(key)));
+      const key = stable({ target: c.target_id, dataset: c.dataset, subcommand: c.config.subcommand, adaptor: c.adaptor_revision, runtime: c.runtime_config, params });
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+    const manifests = new Set<string>();
+    collected.manifests = collected.manifests.filter(m => {
+      const key = stable({ dataset: m.dataset, scope: m.scope, hash: m.sha256 || m.id });
+      if (manifests.has(key)) return false;
+      manifests.add(key); return true;
+    });
     setOptions(collected);
   };
   useEffect(() => { void refresh().catch(() => setMessage("规划选项加载失败，请重试。")); }, []);
@@ -119,7 +137,7 @@ export function TaskPlanning() {
   const incomplete = enabled.some(d => !selection[d]?.compilation || !selection[d]?.manifest);
   const ready = !!target && !!resource && payload.tasks.length > 0 && !incomplete;
   const report = job?.state === "completed" ? job.result?.report : undefined;
-  const blocker = !target ? "请选择模型服务" : !resource ? "请选择执行资源" : !enabled.length ? "请启用至少一个数据集" : incomplete ? "请补全已启用数据集的配置与样本范围" : !preflight?.result?.execution_ready ? "请完成资源预检并处理阻塞项" : report && recommend && !execution ? "请采纳本次执行方案" : !runConfirmed ? "请确认测评范围与模型调用费用" : "配置已就绪，可以提交测评";
+  const blocker = !target ? "请选择模型服务" : !resource ? "请选择执行资源" : !enabled.length ? "请启用至少一个数据集" : incomplete ? "请补全已启用数据集的配置与样本范围" : !preflight?.result?.execution_ready ? "请完成资源预检并处理阻塞项" : !runConfirmed ? "请确认测评范围与模型调用费用" : "配置已就绪，可以提交测评";
   const sampleCount = payload.tasks.reduce((sum, t) => sum + (options.manifests.find(m => m.id === t.manifest_id)?.sample_count || 0), 0);
   return <div className="planning-layout"><section className="card stack planning-card" aria-label="完整测评规划">
     <h2>1. 模型与执行资源</h2>
@@ -143,7 +161,7 @@ export function TaskPlanning() {
     <div className="table-wrap"><table className="planning-table"><thead><tr><th>启用</th><th>数据集</th><th>执行配置</th><th>样本范围</th><th>状态</th></tr></thead><tbody>{datasets.map(d => {
       const active = enabled.includes(d);
       const configs = options.compilations.filter(c => c.target_id === target && c.input_ready && c.dataset === d);
-      return <tr key={d}><td><input type="checkbox" aria-label={`启用 ${d}`} checked={active} onChange={e => { setEnabled(rows => e.target.checked ? [...rows, d] : rows.filter(row => row !== d)); setSelection(rows => ({ ...rows, [d]: { compilation: "", manifest: "" } })); }} /></td><td>{d}</td><td data-label="执行配置"><select disabled={!active || !target} aria-label={`${d} 执行配置`} value={selection[d]?.compilation || ""} onChange={e => setSelection(rows => ({ ...rows, [d]: { ...rows[d], compilation: e.target.value } }))}><option value="">{!target ? "先选择模型服务" : !configs.length ? "暂无可用配置" : "请选择执行配置"}</option>{configs.map(c => <option key={c.id} value={c.id}>{c.label || c.sha256.slice(0, 12)} / {String(c.config.params.batch_size ?? c.config.params.n_concurrent_trials ?? 1)} 并发</option>)}</select></td><td data-label="样本范围"><select disabled={!active || !selection[d]?.compilation} aria-label={`${d} 样本范围`} value={selection[d]?.manifest || ""} onChange={e => setSelection(rows => ({ ...rows, [d]: { ...rows[d], manifest: e.target.value } }))}><option value="">请选择已绑定清单</option>{options.manifests.filter(m => m.dataset === d).map(m => <option key={m.id} value={m.id}>{m.scope === "full" ? "全量" : "Lite"} · {m.sample_count} 个样本</option>)}</select></td><td><span className="planning-row-state">{!active ? "未启用" : !configs.length ? "需配置" : selection[d]?.compilation && selection[d]?.manifest ? "已配置" : "待补全"}</span></td></tr>;
+      return <tr key={d}><td><input type="checkbox" aria-label={`启用 ${d}`} checked={active} onChange={e => { setEnabled(rows => e.target.checked ? [...rows, d] : rows.filter(row => row !== d)); setSelection(rows => ({ ...rows, [d]: { compilation: "", manifest: "" } })); }} /></td><td>{d}</td><td data-label="执行配置"><select disabled={!active || !target} aria-label={`${d} 执行配置`} value={selection[d]?.compilation || ""} onChange={e => setSelection(rows => ({ ...rows, [d]: { ...rows[d], compilation: e.target.value } }))}><option value="">{!target ? "先选择模型服务" : !configs.length ? "暂无可用配置" : "请选择执行配置"}</option>{configs.map(c => <option key={c.id} value={c.id}>{c.label || c.sha256.slice(0, 12)} / {String(c.config.params.batch_size ?? c.config.params.n_concurrent_trials ?? 1)} 并发</option>)}</select></td><td data-label="样本范围"><select disabled={!active || !selection[d]?.compilation} aria-label={`${d} 样本范围`} value={selection[d]?.manifest || ""} onChange={e => setSelection(rows => ({ ...rows, [d]: { ...rows[d], manifest: e.target.value } }))}><option value="">请选择已绑定清单</option>{options.manifests.filter(m => m.dataset === d).map(m => <option key={m.id} value={m.id}>{m.scope === "full" ? "全量" : "Lite"} · {m.sample_count} 个样本 · {m.id.slice(0, 8)}</option>)}</select></td><td><span className="planning-row-state">{!active ? "未启用" : !configs.length ? "需配置" : selection[d]?.compilation && selection[d]?.manifest ? "已配置" : "待补全"}</span></td></tr>;
     })}</tbody></table></div>
     <details className="planning-management"><summary>管理配置与清单 · 缺少配置时在此维护</summary>
     <div className="inline"><ManagementDrawer title="配置标准输入"><StandardInputs /></ManagementDrawer><ManagementDrawer title="管理样本清单"><DatasetManifests /></ManagementDrawer><ManagementDrawer title="登记执行规则"><ExecutionBindings /></ManagementDrawer><button onClick={() => void action(refresh)}>刷新配置与清单</button></div>
@@ -152,7 +170,7 @@ export function TaskPlanning() {
     {incomplete && <p role="alert">请为每个已选执行配置选择样本范围。</p>}
     <h2>3. 执行策略</h2>
     <div className="planning-strategy"><label>数据集同时运行数<input aria-label="数据集同时运行数" type="number" min={1} max={3} value={parallel} onChange={e => setParallel(Number(e.target.value))} /></label>
-    <label><input type="checkbox" checked={recommend} onChange={e => setRecommend(e.target.checked)} />搜索更优顺序和并发（取消后按当前配置估算）</label></div>
+    <label><input type="checkbox" checked={recommend} onChange={e => setRecommend(e.target.checked)} />可选：搜索更优顺序和并发（不影响直接测评）</label></div>
     <details className="planning-throughput"><summary>吞吐曲线与主动探测<span>高级设置 · 可使用已有曲线或发起真实探测</span></summary><div className="probe-content"><h3>主动探测</h3><div className="probe-fields">
       <label>并发档位<input value={levels} onChange={e => { setLevels(e.target.value); setProbeConfirmed(false); }} /></label>
       <label>输入 token<input type="number" min={1} max={4096} value={promptTokens} onChange={e => { setPromptTokens(Number(e.target.value)); setProbeConfirmed(false); }} /></label>
@@ -160,7 +178,7 @@ export function TaskPlanning() {
       </div><p className="probe-budget">包含非流式回退在内最多 {validLevels ? requestBudget : "—"} 次请求，最多 {validLevels ? requestBudget * maxTokens : "—"} 个输出 token；可能产生模型调用费用。</p>
       <div className="probe-actions"><label><input type="checkbox" checked={probeConfirmed} onChange={e => setProbeConfirmed(e.target.checked)} />确认探测预算</label>
       <button disabled={busy || !target || !resource || !probeConfirmed || !validLevels || probe?.state === "pending" || probe?.state === "running"} onClick={() => void action(async () => { const body = { target_id: target, resource_id: resource, resource_kind: resourceKind, concurrency: probeLevels, prompt_tokens: promptTokens, max_tokens: maxTokens }; const serialized = JSON.stringify(body); if (probeIntent.current?.body !== serialized || (probe && ["completed", "failed", "cancelled"].includes(probe.state))) probeIntent.current = { body: serialized, key: crypto.randomUUID() }; setProbe(await apiPost<Job>("/planning/probes", body, probeIntent.current.key)); })}>启动真实吞吐探测</button></div>
-      {probe && <p role="status">探测：{probe.state} {probe.result?.reason}</p>}
+      {probe && <ProbeProgress job={probe} />}
       {probe && ["pending", "running"].includes(probe.state) && <button onClick={() => void action(async () => { await apiPost(`/planning/probes/${probe.id}/cancel`, {}); })}>取消探测</button>}
       <details className="probe-import"><summary>导入已有吞吐曲线</summary><div className="probe-import-content"><label>曲线 JSON<textarea aria-label="曲线 JSON" rows={5} placeholder="在此粘贴吞吐曲线 JSON" spellCheck={false} value={curveText} onChange={e => setCurveText(e.target.value)} /></label>
       <button disabled={busy || !target || !resource || !curveText} onClick={() => void action(async () => { const saved = await apiPost<{ id: string }>("/planning/throughput-profiles", { target_id: target, resource_id: resource, resource_kind: resourceKind, curve: JSON.parse(curveText) }); await refresh(); setCurve(saved.id); })}>导入吞吐曲线</button></div></details>
@@ -174,17 +192,18 @@ export function TaskPlanning() {
       <div><dt>测评范围</dt><dd>{enabled.length} 个数据集 · {sampleCount} 个样本</dd></div>
       <div><dt>资源检查</dt><dd>{preflight?.result?.execution_ready ? "通过" : preflight?.state || "未执行"}</dd></div>
     </dl>
-    <div className="planning-duration" role="status"><span>预计总耗时</span><strong>{report ? duration(report.estimate.total_duration_sec) : "暂无可靠估算"}</strong><small>{report ? "不含排队及报告分析耗时" : !curve ? "请选择吞吐来源，或在高级设置中探测 / 导入曲线" : "配置完成后点击计算耗时与编排"}</small></div>
+    <div className="planning-duration" role="status"><span>预计总耗时</span><strong>{report ? duration(report.estimate.total_duration_sec) : "暂无可靠估算"}</strong><small>{report ? "不含排队及报告分析耗时" : !curve ? "未提供吞吐曲线；可直接按当前配置发起测评" : "配置完成后点击计算耗时与编排"}</small></div>
     <button disabled={busy || !ready || !curve} onClick={() => void action(async () => { const revision = generation.current; const next = await apiPost<Job>("/planning/plans", payload); if (revision === generation.current) setJob(next); })}>计算耗时与编排</button>
     {job && <p role="status">规划：{job.state} {job.result?.reason}</p>}
     {report && <><details><summary>查看耗时与编排明细</summary><div className="table-wrap"><PlanEstimate report={report} /></div></details><button disabled={busy || report.conditional} onClick={() => void action(async () => { const revision = generation.current; const saved = await apiPost<{ execution_plan_id: string; report: Report }>(`/planning/plans/${job!.id}/apply`, { input_sha256: report.input_sha256 }); if (revision === generation.current) { setExecution(saved.execution_plan_id); setJob(current => current ? { ...current, result: { ...current.result, report: saved.report } } : current); } })}>采纳本次执行方案</button></>}
     {execution && <p role="status">已采纳；修改输入将使方案失效。</p>}
     <p className="planning-blocker" role="status">{blocker}</p>
     <label className="planning-confirm"><input type="checkbox" checked={runConfirmed} onChange={e => setRunConfirmed(e.target.checked)} />确认所选数据集及范围，提交真实测评，可能产生模型调用费用</label>
-    <button className="primary" disabled={busy || !ready || !runConfirmed || !preflight?.result?.execution_ready || (!!report && recommend && !execution)} onClick={() => void action(async () => {
-      const body = JSON.stringify({ payload, execution });
+    <button className="primary" disabled={busy || !ready || !runConfirmed || !preflight?.result?.execution_ready} onClick={() => void action(async () => {
+      const submission = execution ? payload : { ...payload, recommend: false, throughput_profile_id: null };
+      const body = JSON.stringify({ payload: submission, execution });
       if (pending.current?.body !== body) pending.current = { body, key: crypto.randomUUID() };
-      const saved = await apiPost<{ run_id: string }>(`/planning/runs${execution ? `?execution_plan_id=${execution}` : ""}`, payload, pending.current.key);
+      const saved = await apiPost<{ run_id: string }>(`/planning/runs${execution ? `?execution_plan_id=${execution}` : ""}`, submission, pending.current.key);
       pending.current = null; location.hash = `#planned-run/${saved.run_id}`;
     })}>提交测评{execution ? "（已采纳编排）" : "（当前配置）"}</button>
     {message && <p role="alert">{message}</p>}

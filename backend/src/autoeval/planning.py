@@ -232,7 +232,7 @@ async def resolve_inputs(session, settings, body):
 
 
 @router.get("/options")
-async def options(request: Request, offset: int = 0, limit: int = 100):
+async def options(request: Request, offset: int = 0, limit: int = 100, include_test: bool = False):
     from autoeval.profiles import EvaluationProfile
 
     if offset < 0 or not 1 <= limit <= 200:
@@ -250,6 +250,13 @@ async def options(request: Request, offset: int = 0, limit: int = 100):
             await session.scalars(
                 select(EvaluationProfile)
                 .where(EvaluationProfile.dataset_name.in_(DATASETS))
+                .where(
+                    True
+                    if include_test
+                    else ~EvaluationProfile.profile_key.op("~")(
+                        r"^(fixture-[a-f0-9]{32}|browser-[a-f0-9]{12}|pipeline-[a-f0-9]{32})$"
+                    )
+                )
                 .order_by(EvaluationProfile.created_at.desc(), EvaluationProfile.id)
                 .offset(offset)
                 .limit(limit + 1)
@@ -294,6 +301,12 @@ async def options(request: Request, offset: int = 0, limit: int = 100):
                             + " / "
                             + c.payload.get("template_version", ""),
                             "sha256": c.sha256,
+                            "adaptor_revision": c.payload.get("adaptor_revision"),
+                            "runtime_config": {
+                                k: v
+                                for k, v in c.payload.get("runtime_config", {}).items()
+                                if k not in {"work_dir", "container_name"}
+                            },
                             "target_id": (c.payload.get("credential_binding") or {}).get(
                                 "target_id"
                             ),
@@ -308,6 +321,7 @@ async def options(request: Request, offset: int = 0, limit: int = 100):
                                 "id": str(m.id),
                                 "scope": m.scope,
                                 "sample_count": m.sample_count,
+                                "sha256": m.sha256,
                                 "dataset": p.dataset_name,
                             }
                             for p in profiles
@@ -447,6 +461,8 @@ async def job_status(job_id: uuid.UUID, request: Request):
                 "state": row.state,
                 "result": row.result,
                 "cancel_requested": row.cancel_requested,
+                "created_at": row.created_at.isoformat(),
+                "updated_at": row.updated_at.isoformat(),
             },
             request,
         )

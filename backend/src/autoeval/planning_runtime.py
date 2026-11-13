@@ -123,8 +123,6 @@ def preflight(tasks=None):
     else:
         supported = sorted({c["dataset"] for c in checks if not c["blocking_reasons"]})
     blockers = []
-    if not planner_ready:
-        blockers.append("planner_revision_mismatch")
     if not adaptor_ready:
         blockers.append("adaptor_revision_mismatch")
     selection_ready = (
@@ -145,7 +143,7 @@ def preflight(tasks=None):
         "tool_versions": versions,
         "dataset_checks": checks,
         "blocking_reasons": blockers,
-        "execution_ready": planner_ready and adaptor_ready and selection_ready,
+        "execution_ready": adaptor_ready and selection_ready,
         "supported_datasets": supported,
         "max_probe_concurrency": int(os.environ.get("AE_MAX_PROBE_CONCURRENCY", "8")),
         "node_id": hashlib.sha256(Path("/proc/sys/kernel/random/boot_id").read_bytes()).hexdigest(),
@@ -154,8 +152,14 @@ def preflight(tasks=None):
 
 
 def validate_spec(spec):
-    if spec.get("kind") not in {"planner_probe", "adaptor"}:
+    if spec.get("kind") not in {"planner_probe", "planner_plan", "adaptor"}:
         raise ValueError("Unsupported controlled job")
+    if spec["kind"] == "planner_plan":
+        if set(spec) != {"kind", "credential", "inputs", "curve", "resource", "history"}:
+            raise ValueError("Unknown plan fields")
+        if len(json.dumps(spec)) > 8 * 1024 * 1024:
+            raise ValueError("Plan input too large")
+        return
     if spec["kind"] == "planner_probe":
         if set(spec) - {"kind", "options", "credential"}:
             raise ValueError("Unknown probe fields")
@@ -243,6 +247,23 @@ def execute(folder, spec):
     secret_path = folder / "credential.json"
     key = json.loads(secret_path.read_text())["value"]
     try:
+        if spec["kind"] == "planner_plan":
+            if installed_revision("autoeval-task-planner") != PLANNER_REVISION:
+                raise ValueError("Planner revision mismatch")
+            from planning_calculation import calculate
+
+            work = folder / "calculation"
+            work.mkdir(exist_ok=True)
+            return {
+                "report": calculate(
+                    spec["inputs"],
+                    spec["curve"],
+                    spec["resource"],
+                    spec["history"],
+                    str(work),
+                    recommend=spec["inputs"].get("recommend", True),
+                )
+            }
         if spec["kind"] == "planner_probe":
             if installed_revision("autoeval-task-planner") != PLANNER_REVISION:
                 raise ValueError("Planner revision mismatch")
@@ -256,9 +277,52 @@ def execute(folder, spec):
 
             urllib.request.install_opener(urllib.request.build_opener(NoRedirect()))
 
+            import time
+
+            import autoeval_planner.probe as probe_module
+
+            completed_levels = set()
+            original_level = probe_module._run_level
+            started = time.monotonic()
+            progress_path = folder / "progress.json"
+
+            def publish(stage, concurrency=None):
+                value = {
+                    "job_id": folder.name,
+                    "stage": stage,
+                    "current_concurrency": concurrency,
+                    "completed_levels": len(completed_levels),
+                    "total_levels": len(spec["options"]["concurrency_levels"]),
+                    "observed_at": datetime.now(UTC).isoformat(),
+                    "elapsed_sec": round(time.monotonic() - started, 3),
+                }
+                temporary = progress_path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(value))
+                temporary.replace(progress_path)
+
+            def observed_level(**kwargs):
+                concurrency = kwargs["concurrency"]
+                completed_levels.discard(concurrency)
+                publish("probing", concurrency)
+                result = original_level(**kwargs)
+                completed_levels.add(concurrency)
+                publish("level_completed", concurrency)
+                return result
+
+            probe_module._run_level = observed_level
+            publish("preparing")
             # Retries disabled; budget includes a full non-stream fallback per level.
-            profile = run_probe(api_key=key, **spec["options"], retries=0, timeout=120, stream=True)
-            return {"curve": profile.to_dict()}
+            try:
+                profile = run_probe(
+                    api_key=key, **spec["options"], retries=0, timeout=120, stream=True
+                )
+                publish("archiving")
+                return {
+                    "curve": profile.to_dict(),
+                    "progress": json.loads(progress_path.read_text()),
+                }
+            finally:
+                probe_module._run_level = original_level
         if installed_revision("autoeval-benchmark-adaptor") != ADAPTOR_REVISION:
             raise ValueError("Adaptor revision mismatch")
         verify_tool(spec)

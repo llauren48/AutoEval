@@ -23,7 +23,6 @@ from autoeval.planning import (
     current_preflight,
     resolve_inputs,
 )
-from autoeval.planning_engine import apply_concurrency
 from autoeval.planning_transport import transport
 from autoeval.secrets import FileSecretStore
 from autoeval.standard_inputs import digest, leaves
@@ -106,6 +105,8 @@ async def release(session, owner):
 
 
 async def create_run(session, settings, body, execution_plan_id, key):
+    if not execution_plan_id:
+        body = body.model_copy(update={"recommend": False, "throughput_profile_id": None})
     request_hash = digest(
         {
             "request": body.model_dump(mode="json"),
@@ -143,12 +144,13 @@ async def create_run(session, settings, body, execution_plan_id, key):
         inputs = copy.deepcopy(execution.payload["inputs"])
         report = execution.payload["report"]
     else:
-        # Manual submissions still enforce all standard locks and resource capability checks.
+        # Direct execution freezes the supplied settings without optimizer rewrites.
+        inputs = copy.deepcopy(inputs)
         for item in inputs["tasks"]:
-            try:
-                item["compilation"] = apply_concurrency(item["compilation"], item["concurrency"])
-            except ValueError as exc:
-                raise HTTPException(409, str(exc)) from exc
+            if int(item["compilation"]["config"]["params"].get("max_num_workers", 1)) != 1:
+                raise HTTPException(
+                    409, "Platform owns dataset parallelism; configure max_num_workers=1"
+                )
     for item in inputs["tasks"]:
         if item["dataset"] not in fresh.payload["supported_datasets"] or not fits(
             demand_for(item), {}, fresh.payload
@@ -177,6 +179,7 @@ async def create_run(session, settings, body, execution_plan_id, key):
         "schema_version": "planned-run.v1",
         "inputs": inputs,
         "estimate": report,
+        "execution_mode": "optimized" if execution_plan_id else "direct",
         "resource": fresh.payload,
         "resource_sha256": fresh.sha256,
         "target_id": str(target.id),

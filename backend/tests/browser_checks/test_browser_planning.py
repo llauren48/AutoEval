@@ -103,6 +103,8 @@ def test_planning_duration_apply_and_stale_input_invalidation():
                     "blocking_reasons": [],
                 },
             }
+        elif path in {"/planning/probes", "/planning/probes/TEST-probe"}:
+            data = {"id": "TEST-probe", "state": "running", "created_at": "2026-11-13T00:00:00Z", "updated_at": "2026-11-13T00:00:02Z", "result": {"progress": {"stage": "probing", "current_concurrency": 4, "completed_levels": 2, "total_levels": 4}}}
         elif path == "/planning/plans":
             data = {"id": "plan", "state": "completed", "result": {"report": report}}
         elif path == "/planning/plans/plan/apply":
@@ -141,6 +143,12 @@ def test_planning_duration_apply_and_stale_input_invalidation():
         panel.get_by_role("checkbox", name="启用 GPQA", exact=True).check()
         panel.get_by_label("GPQA 执行配置").select_option("compilation")
         panel.get_by_label("GPQA 样本范围").select_option("manifest")
+        # No curve or probe is necessary to submit the current configuration.
+        panel.get_by_role("button", name="预检执行资源").click()
+        panel.get_by_text("GPQA · 数据路径：/TEST/gpqa · 工具版本：cccccccccccc · 就绪").wait_for()
+        summary.get_by_role("checkbox", name="确认所选数据集及范围，提交真实测评，可能产生模型调用费用").check()
+        assert summary.get_by_role("button", name="提交测评（当前配置）").is_enabled()
+        assert not any(method == "POST" and path in {"/planning/probes", "/planning/plans"} for method, path in calls)
         panel.get_by_label("吞吐来源").select_option("curve")
         panel.get_by_role("button", name="预检执行资源").click()
         panel.get_by_text("GPQA · 数据路径：/TEST/gpqa · 工具版本：cccccccccccc · 就绪").wait_for()
@@ -160,5 +168,13 @@ def test_planning_duration_apply_and_stale_input_invalidation():
             method == "POST" and path in {"/planning/probes", "/planning/runs"}
             for method, path in calls
         )
+        panel.locator(".planning-throughput > summary").click()
+        panel.get_by_role("checkbox", name="确认探测预算").check()
+        panel.get_by_role("button", name="启动真实吞吐探测").click()
+        progress = panel.get_by_role("region", name="吞吐探测进度")
+        progress.get_by_text("探测任务：TEST-probe").wait_for()
+        assert "已完成 2/4 档" in progress.inner_text()
+        assert progress.get_by_role("progressbar").get_attribute("aria-valuenow") == "50"
+        page.screenshot(path=str(artifact / "probe-progress.png"), full_page=True)
         context.close()
         browser.close()

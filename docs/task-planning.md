@@ -125,3 +125,28 @@ PlanInput：target_id、resource_id、resource_kind（docker_local/customer_ssh�
 - 容器包装解释器补齐 `AE_JOB_ROOT` 透传、按宿主机 uid 1008 运行、容器内用户与 `git safe.directory`；`AE_VALIDATED_DATASETS=GPQA,MMMU-Pro` 为运维声明，不作为验收结论。
 
 未覆盖：MMMU-Pro 真实评分与归档、DeepSWE（本轮跳过）、Harbor 取消回收、工具 HTTP monitor 自动轮询；MMMU-Pro 需要在 Adaptor 增加本地图片内联转换或改用支持多模态的固定模型配置后重测。
+
+
+## 2026-11-13 服务器容器对接
+
+客户 SSH 资源必须通过服务端 `AE_PLANNING_CONTAINER_CONFIG` 指向受保护 JSON：键为资源 UUID，值为 `{container_id, image_id}`，两个值都为完整 Docker 身份；缺少绑定拒绝执行，不回退 SSH 宿主机。开发本机配置为 `.secrets/planning-containers.json`，禁止提交凭据或受保护文件。
+
+平台 `python -m autoeval.planning_worker` 只承担持久化协调，计算与探测通过固定指纹 SSH 调用 docker exec，在指定已存在容器中运行。独立部署目录 `/tmp/autoeval-planning-runtime/<sha256>` 包含作业控制、计算模块、同源参数校验和固定提交 Planner 包及版本元数据；部署逐文件校验回读，不替换共享 AISBench。单作业使用独立 UUID、进程身份与追加式结果；不确定提交只查询，不盲目重发。规划结果归档后按所有权清理，取消使用原作业进程组。
+
+默认 `AE_PLANNING_JOB_KINDS=preflight,plan`，不会消费历史待执行探测。确认逐条遗留任务与预算后才能显式启用 probe；禁用不等于取消，历史记录保持不变。Docker 本地适配路径仍保留兼容，客户 SSH 路径强制选择绑定容器。
+
+验证：在现有服务器 LLM 容器中完成固定版本预检与人工输入的离线规划，作业 `f3d3c192-bb99-4e03-a145-e74440918624` 成功、结果读回及清理完成；证据位于开发目录 `.screenshots/remote-planner-no-model-validation.json`。使用人工吞吐数据，没有模型请求，不作为真实吞吐精度或全量测评验收。容器共享 AISBench 的适配器包版本仍需按实际预检结果独立确认。
+
+
+## 探测进度
+
+容器独立作业目录的 progress.json 记录 job_id、阶段、当前并发档位、完成/总档位、工具观测时间和耗时，不包含请求正文或凭据。平台按原作业键经SSH读取，校验归属后保存最新投影；采集失败不重发模型请求。终态进度随曲线结果保留，原作业清理不影响数据库投影。前端沿用现有轮询，在探测区域显示任务ID、档位进度和累计耗时；未知进度不估算百分比，历史无数据不补造。后端查询新增created_at/updated_at兼容字段。
+
+无网络进度边界测试及浏览器人工接口测试通过。未新增真实模型调用。部署需重新加载API和planning_worker，新任务安装包含进度钩子的内容哈希运行副本；不可为演示进度重跑已完成的真实探测。默认不消费probe的保护策略保持不变。
+
+
+## 默认直接测评，不要求探测
+
+控制台默认按当前配置执行。没有吞吐曲线或估时结果时仍可在必要预检和范围确认后提交。计算时长、主动探测和采纳优化方案都是独立可选操作；已有估时结果不强迫采纳，不因提交测评自动取消另一个探测。
+
+未选择 execution_plan_id 时，后台将 recommend=false、throughput_profile_id=null 固定到执行输入，按原配置及样本范围保存快照，estimate=null、execution_mode=direct；不调用 Planner 估算、不填造时长。标准锁定字段、目标合法性、资源能力、唯一并行拥有者及有效预检仍检查。max_num_workers 不为1时明确拒绝，要求修正配置，避免悄悄重写参数。执行环境就绪不再以 Planner 包安装状态为必要条件；规划与探测仍各自验证 Planner 身份。
