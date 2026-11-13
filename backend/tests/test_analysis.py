@@ -129,6 +129,40 @@ def test_evidence_input_is_hash_bound_and_contains_no_credentials():
         )
 
 
+def test_evidence_input_accepts_unified_report_and_case_schema():
+    attempt_id = uuid.uuid4()
+    evidence_input = build_analysis_input(
+        report_id=uuid.uuid4(),
+        report_sha256="a" * 64,
+        snapshot_sha256="d" * 64,
+        report_body={"schema_version": "gpqa-report.v1", "summary": {}},
+        snapshot_body={"config_version_id": "config"},
+        attempts=[
+            {
+                "attempt_id": str(attempt_id),
+                "sha256": "b" * 64,
+                "body": {
+                    "schema_version": "unified-case.v1",
+                    "sample_id": "sample-1",
+                    "dataset_key": "gpqa",
+                    "attempt_no": 1,
+                    "status": "succeeded",
+                    "raw": {"case_id": "sample-1", "status": "succeeded"},
+                },
+            }
+        ],
+        baseline_comparison={"status": "missing"},
+        baseline_comparison_sha256="c" * 64,
+    )
+    assert set(evidence_input["evidence_catalog"]) == {
+        "run.summary",
+        f"attempt:{attempt_id}",
+        "baseline.comparison",
+    }
+    assert evidence_input["evidence"][0]["content"]["report"]["schema_version"] == "gpqa-report.v1"
+    assert evidence_input["evidence"][1]["content"]["raw"]["case_id"] == "sample-1"
+
+
 class FakeSession:
     def __init__(self, report, target, resource, existing=None, evaluated_target=None):
         self.report = report
@@ -677,9 +711,7 @@ async def test_activity_freezes_input_before_running(monkeypatch):
 
 
 def test_analysis_api_and_capabilities_reflect_explicit_configuration():
-    unconfigured = Settings(
-        environment="test", analysis_target_id=None, analysis_resource_id=None
-    )
+    unconfigured = Settings(environment="test", analysis_target_id=None, analysis_resource_id=None)
     with TestClient(create_app(unconfigured)) as client:
         response = client.post(f"/api/autoeval/v1/reports/{uuid.uuid4()}/analysis:retry")
         assert response.status_code == 503
@@ -721,3 +753,15 @@ def test_report_analysis_status_distinguishes_disabled_unqueued_and_actual_state
         )
         == "not_enabled"
     )
+
+
+def test_analysis_prompt_requests_chinese_without_changing_evidence():
+    from autoeval.analysis import analysis_prompt
+
+    evidence = {"evidence_catalog": {"case.0": {"dataset": "GPQA_diamond", "score": 0}}}
+    prompt = analysis_prompt(evidence)
+    assert "简体中文" in prompt
+    assert "summary、facts 和 inferences" in prompt
+    assert "recommended_actions 中的每一条建议" in prompt
+    assert "证据不足" in prompt
+    assert json.loads(prompt.split("\n", 1)[1]) == evidence

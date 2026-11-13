@@ -120,10 +120,14 @@ def build_analysis_input(
             parsed_id = uuid.UUID(attempt_id)
         except (ValueError, TypeError, AttributeError) as exc:
             raise ValueError("Invalid attempt citation") from exc
+        schema_version = body.get("schema_version")
         if (
             attempt_id in seen_attempts
-            or body.get("attempt_id") != attempt_id
-            or body.get("schema_version") != "case-evidence.v1"
+            or not (
+                (schema_version == "case-evidence.v1" and body.get("attempt_id") == attempt_id)
+                # unified-case.v1 has no embedded attempt_id; CaseExecutionRecord id + sha256 bind it.
+                or schema_version == "unified-case.v1"
+            )
             or not HEX256.fullmatch(attempt.get("sha256", ""))
         ):
             raise ValueError("Attempt evidence identity is inconsistent")
@@ -232,7 +236,12 @@ def analysis_prompt(evidence_input: dict) -> str:
         'inferences are lists of {"statement", "evidence_ids"} objects; use an empty evidence_ids '
         'list only for an inference whose statement contains "insufficient evidence" or "证据不足". '
         "Every citation must be copied from evidence_catalog without duplicates. recommended_actions must be a "
-        "list of concise strings.\n" + canonical_manifest(evidence_input).decode()
+        "list of concise strings. "
+        "请使用简体中文撰写所有面向用户的分析内容：summary、facts 和 inferences 中的 statement，"
+        "以及 recommended_actions 中的每一条建议。不要输出整段英文叙述。"
+        "JSON 字段名、evidence_ids、模型与数据集标识、错误码、原始数值及单位必须保持原样，"
+        "不要翻译或改写证据标识。证据不足的推断必须明确写出‘证据不足’。\n"
+        + canonical_manifest(evidence_input).decode()
     )
 
 
