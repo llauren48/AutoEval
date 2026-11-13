@@ -1,0 +1,170 @@
+{
+  "version": "3.7",
+  "services": {
+    "dispatcher": {
+      "image": "${AE_BACKEND_IMAGE:?fixed backend image required}",
+      "restart": "unless-stopped",
+      "env_file": [
+        "./shared/backend.env"
+      ],
+      "volumes": [
+        "./shared/secrets:/app/.secrets:ro"
+      ],
+      "networks": [
+        "internal"
+      ],
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "mem_limit": "2g",
+      "cpus": 2,
+      "command": [
+        "python",
+        "-m",
+        "autoeval.dispatcher"
+      ]
+    },
+    "workflow": {
+      "image": "${AE_BACKEND_IMAGE:?fixed backend image required}",
+      "restart": "unless-stopped",
+      "env_file": [
+        "./shared/backend.env"
+      ],
+      "volumes": [
+        "./shared/secrets:/app/.secrets:ro"
+      ],
+      "networks": [
+        "internal"
+      ],
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "mem_limit": "2g",
+      "cpus": 2,
+      "command": [
+        "python",
+        "-m",
+        "autoeval.worker",
+        "workflow"
+      ]
+    },
+    "monitored": {
+      "image": "${AE_BACKEND_IMAGE:?fixed backend image required}",
+      "restart": "unless-stopped",
+      "env_file": [
+        "./shared/backend.env"
+      ],
+      "volumes": [
+        "./shared/secrets:/app/.secrets:ro"
+      ],
+      "networks": [
+        "internal"
+      ],
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "mem_limit": "2g",
+      "cpus": 2,
+      "command": [
+        "python",
+        "-m",
+        "autoeval.worker",
+        "monitored"
+      ]
+    },
+    "planning": {
+      "image": "${AE_BACKEND_IMAGE:?fixed backend image required}",
+      "restart": "unless-stopped",
+      "env_file": [
+        "./shared/backend.env"
+      ],
+      "volumes": [
+        "./shared/secrets:/app/.secrets:ro"
+      ],
+      "networks": [
+        "internal"
+      ],
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "mem_limit": "2g",
+      "cpus": 2,
+      "command": [
+        "python",
+        "-m",
+        "autoeval.planning_worker"
+      ]
+    },
+    "planning-execution": {
+      "image": "${AE_BACKEND_IMAGE:?fixed backend image required}",
+      "restart": "unless-stopped",
+      "env_file": [
+        "./shared/backend.env"
+      ],
+      "volumes": [
+        "./shared/secrets:/app/.secrets:ro"
+      ],
+      "networks": [
+        "internal"
+      ],
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "mem_limit": "2g",
+      "cpus": 2,
+      "command": [
+        "python",
+        "-m",
+        "autoeval.worker",
+        "planning-execution"
+      ]
+    },
+    "reconciler": {
+      "image": "${AE_BACKEND_IMAGE:?fixed backend image required}",
+      "restart": "unless-stopped",
+      "env_file": [
+        "./shared/backend.env"
+      ],
+      "volumes": [
+        "./shared/secrets:/app/.secrets:ro"
+      ],
+      "networks": [
+        "internal"
+      ],
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      },
+      "mem_limit": "2g",
+      "cpus": 2,
+      "command": [
+        "python",
+        "-m",
+        "autoeval.reconciler"
+      ]
+    }
+  }
+}

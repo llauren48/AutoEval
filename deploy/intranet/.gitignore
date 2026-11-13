@@ -1,0 +1,5 @@
+shared/
+frontend/
+.env
+*.tar
+*.tar.gz

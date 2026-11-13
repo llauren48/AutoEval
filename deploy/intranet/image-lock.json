@@ -1,0 +1,8 @@
+{
+  "nginx": "docker.m.daocloud.io/library/nginx@sha256:30f1c0d78e0ad60901648be663a710bdadf19e4c10ac6782c235200619158284",
+  "postgres": "docker.m.daocloud.io/library/postgres@sha256:557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36",
+  "temporal": "docker.m.daocloud.io/temporalio/auto-setup@sha256:b44cbfeb43dbeae42db113b44fb8414c3452f05643b3d6b1592f955277d73526",
+  "python": "docker.1ms.run/library/python@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
+  "storage": "docker.m.daocloud.io/bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c",
+  "backend": "sha256:94d00f39bb00349d57896f02936ad5812bbf19139a076de5c2bbcc15fa7a614f"
+}
