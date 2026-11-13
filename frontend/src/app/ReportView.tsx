@@ -186,7 +186,7 @@ export function ReportView({ id, go }: { id: string; go: (path: string) => void 
           </button>
           {datasetOpen && <button className="link" onClick={() => setDatasetOpen(false)}>返回报告总览</button>}
         </nav>
-        <a className="primary button" href={`#${report.execution_kind === "planned" ? "planned-run" : "run"}/${report.run_id}`}>查看任务</a>
+        <a className="primary button" href={`#run/${report.run_id}`}>查看任务</a>
       </div>
 
       {!datasetOpen && <section className="card restored-detail">
@@ -241,7 +241,7 @@ export function ReportView({ id, go }: { id: string; go: (path: string) => void 
           当前清单 {summary.expected_samples} 个样本 / 数据集 {summary.dataset_samples} 个样本；本报告不代表全量成绩。执行完成不代表报告有效，成绩须结合证据完整性判断。
         </div>
         <div className="report-quick-links">
-          <a className="report-quick-link" href={`#${report.execution_kind === "planned" ? "planned-run" : "run"}/${report.run_id}`}>
+          <a className="report-quick-link" href={`#run/${report.run_id}`}>
             查看来源任务与 Case 历史
           </a>
           <ManagementDrawer title="报告标识与校验值">

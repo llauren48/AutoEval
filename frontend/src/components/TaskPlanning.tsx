@@ -140,7 +140,7 @@ export function TaskPlanning() {
   const checking = !!preflight && ["pending", "running"].includes(preflight.state);
   const preflightLabel = !preflight ? "未检查" : ({ pending: "排队中", running: "检查中", completed: preflight.result?.execution_ready ? "检查通过" : "存在阻塞", failed: "检查失败", cancelled: "已取消" } as Record<string, string>)[preflight.state] || "状态待确认";
   const preflightTone = checking ? "checking" : preflight?.result?.execution_ready ? "passed" : "blocked";
-  const blocker = !target ? "请选择模型服务" : !resource ? "请选择执行资源" : !enabled.length ? "请启用至少一个数据集" : incomplete ? "请补全已启用数据集的配置与样本范围" : checking ? "正在检查执行资源，请稍候…" : !preflight?.result?.execution_ready ? "请完成资源预检并处理阻塞项" : !runConfirmed ? "请确认测评范围与模型调用费用" : "配置已就绪，可以提交测评";
+  const blocker = !target ? "请选择模型服务" : !resource ? "请选择执行资源" : !enabled.length ? "请启用至少一个数据集" : incomplete ? "请补全已启用数据集的配置与样本范围" : checking ? "正在检查执行环境，请稍候…" : !preflight?.result?.execution_ready ? "请完成环境检查并处理阻塞项" : !runConfirmed ? "请确认测评范围与模型调用费用" : "配置已就绪，可以提交测评";
   const sampleCount = payload.tasks.reduce((sum, t) => sum + (options.manifests.find(m => m.id === t.manifest_id)?.sample_count || 0), 0);
   return <div className="planning-layout"><section className="card stack planning-card" aria-label="完整测评规划">
     <h2>1. 模型与执行资源</h2>
@@ -152,8 +152,9 @@ export function TaskPlanning() {
     </div>
     {(targets.error || resources.error) && <p role="alert">{targets.error || resources.error}</p>}
     <div className="planning-actions">
-      <button disabled={busy || !ready || checking} onClick={() => void action(async () => { setPreflight(await apiPost<Job>("/planning/resources/preflight", payload)); })}>{checking ? "正在预检…" : preflight ? "重新预检" : "预检执行资源"}</button>
-      {preflight && <div className="preflight-feedback" role="status" aria-live="polite"><span className={`preflight-status ${preflightTone}`}><i aria-hidden="true" />{preflightLabel}</span><span className="preflight-hint">{checking ? "正在核对工具版本、数据路径与执行环境" : preflight.result?.execution_ready ? `可执行：${preflight.result.supported_datasets?.join("、") || "所选数据集"}` : preflight.state === "completed" ? "请查看下方检查明细，处理阻塞后重新预检" : "请检查连接及后台任务状态后重试"}</span></div>}
+      <button disabled={busy || !ready || checking} onClick={() => void action(async () => { setPreflight(await apiPost<Job>("/planning/resources/preflight", payload)); })}>{checking ? "正在检查…" : preflight ? "重新检查" : "环境检查"}</button>
+      <p className="muted">仅检查环境，不发起测评。</p>
+      {preflight && <div className="preflight-feedback" role="status" aria-live="polite"><span className={`preflight-status ${preflightTone}`}><i aria-hidden="true" />{preflightLabel}</span><span className="preflight-hint">{checking ? "正在核对工具版本、数据路径与执行环境" : preflight.result?.execution_ready ? `可执行：${preflight.result.supported_datasets?.join("、") || "所选数据集"}` : preflight.state === "completed" ? "请查看下方检查明细，处理阻塞后重新检查" : "请检查连接及后台任务状态后重试"}</span></div>}
     </div>
     {preflight?.state === "completed" && preflight.result && <div className="notice">
       <p>Planner：{preflight.result.tool_versions?.planner.actual?.slice(0, 12) || "未安装或版本未知"}；Adaptor：{preflight.result.tool_versions?.adaptor.actual?.slice(0, 12) || "未安装或版本未知"}</p>
@@ -187,13 +188,13 @@ export function TaskPlanning() {
       <button disabled={busy || !target || !resource || !curveText} onClick={() => void action(async () => { const saved = await apiPost<{ id: string }>("/planning/throughput-profiles", { target_id: target, resource_id: resource, resource_kind: resourceKind, curve: JSON.parse(curveText) }); await refresh(); setCurve(saved.id); })}>导入吞吐曲线</button></div></details>
     </div></details>
     <label>吞吐来源<select aria-label="吞吐来源" value={curve} onChange={e => setCurve(e.target.value)}><option value="">请选择或探测</option>{options.curves.filter(c => c.target_id === target && c.resource_id === resource && c.resource_kind === resourceKind).map(c => <option key={c.id} value={c.id}>{new Date(c.measured_at).toLocaleString()} / {c.id.slice(0, 8)}</option>)}</select></label>
-    </section><aside className="card stack planning-summary" aria-label="任务摘要">
-    <h2>任务摘要</h2>
+    </section><aside className="card stack planning-summary" aria-label="配置摘要">
+    <h2>配置摘要</h2>
     <dl className="planning-checklist">
       <div><dt>模型服务</dt><dd>{targets.rows.find(t => t.id === target)?.remote_model || "待选择"}</dd></div>
       <div><dt>执行资源</dt><dd>{resources.rows.find(r => r.id === resource)?.binding_key || "待选择"}</dd></div>
       <div><dt>测评范围</dt><dd>{enabled.length} 个数据集 · {sampleCount} 个样本</dd></div>
-      <div><dt>资源检查</dt><dd><span className={`preflight-status ${preflight ? preflightTone : "idle"}`}>{preflightLabel}</span></dd></div>
+      <div><dt>环境检查</dt><dd><span className={`preflight-status ${preflight ? preflightTone : "idle"}`}>{preflightLabel}</span></dd></div>
     </dl>
     <div className="planning-duration" role="status"><span>预计总耗时</span><strong>{report ? duration(report.estimate.total_duration_sec) : "暂无可靠估算"}</strong><small>{report ? "不含排队及报告分析耗时" : !curve ? "未提供吞吐曲线；可直接按当前配置发起测评" : "配置完成后点击计算耗时与编排"}</small></div>
     <button disabled={busy || !ready || !curve} onClick={() => void action(async () => { const revision = generation.current; const next = await apiPost<Job>("/planning/plans", payload); if (revision === generation.current) setJob(next); })}>计算耗时与编排</button>
@@ -207,7 +208,7 @@ export function TaskPlanning() {
       const body = JSON.stringify({ payload: submission, execution });
       if (pending.current?.body !== body) pending.current = { body, key: crypto.randomUUID() };
       const saved = await apiPost<{ run_id: string }>(`/planning/runs${execution ? `?execution_plan_id=${execution}` : ""}`, submission, pending.current.key);
-      pending.current = null; location.hash = `#planned-run/${saved.run_id}`;
+      pending.current = null; location.hash = `#run/${saved.run_id}`;
     })}>提交测评{execution ? "（已采纳编排）" : "（当前配置）"}</button>
     {message && <p role="alert">{message}</p>}
   </aside></div>;
