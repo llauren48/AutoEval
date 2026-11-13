@@ -65,7 +65,11 @@ async def list_runs(request: Request, offset: int = 0, limit: int = 50):
                     select(EvaluationRun, RunSnapshot, EvaluationReport.id)
                     .join(RunSnapshot, RunSnapshot.run_id == EvaluationRun.id)
                     .outerjoin(EvaluationReport, EvaluationReport.run_id == EvaluationRun.id)
-                    .where(EvaluationRun.trigger_scope == "local-operator:evaluation")
+                    .where(
+                        EvaluationRun.trigger_scope.in_(
+                            ["local-operator:evaluation", "local-operator:orchestration"]
+                        )
+                    )
                     .where(
                         or_(
                             RunSnapshot.canonical_body["execution_origin"].astext
@@ -321,7 +325,10 @@ async def detail(run_id: uuid.UUID, request: Request):
     try:
         async with request.app.state.sessions() as session:
             row = await session.get(EvaluationRun, run_id)
-            if row is None or (row.trigger_scope != "local-operator:evaluation" and not (row.trigger_scope == "local-operator:unified-fixture" and request.app.state.settings.environment in {"development", "test"})):
+            if row is None or row.trigger_scope not in {
+                "local-operator:evaluation",
+                "local-operator:orchestration",
+            }:
                 raise HTTPException(404, "Evaluation run not found")
             events = (
                 await session.scalars(
@@ -368,7 +375,13 @@ async def detail(run_id: uuid.UUID, request: Request):
                             "execution_origin",
                         )
                     },
-                    "sample_count": len(snapshot.canonical_body.get("samples", [])),
+                    # Planned runs freeze per-dataset samples instead of a top-level list.
+                    "sample_count": len(snapshot.canonical_body.get("samples", []))
+                    if snapshot.canonical_body.get("samples") is not None
+                    else sum(
+                        len(task.get("samples") or [])
+                        for task in (snapshot.canonical_body.get("inputs") or {}).get("tasks", [])
+                    ),
                 }
                 if snapshot
                 else None,
@@ -376,7 +389,9 @@ async def detail(run_id: uuid.UUID, request: Request):
                 "cleanup": cleanup_view(
                     cleanup,
                     required=bool(
-                        snapshot and snapshot.canonical_body.get("resource_kind") == "customer_ssh"
+                        snapshot
+                        and snapshot.canonical_body.get("resource_kind") == "customer_ssh"
+                        and row.trigger_scope == "local-operator:evaluation"
                     ),
                 ),
                 "execution_unresolved": bool(events and events[-1].type == "execution_unresolved"),
@@ -433,7 +448,15 @@ async def cancel(run_id: uuid.UUID, request: Request):
                 select(EvaluationRun)
                 .where(
                     EvaluationRun.id == run_id,
-                    EvaluationRun.trigger_scope.in_(["local-operator:evaluation", "local-operator:unified-fixture"] if request.app.state.settings.environment in {"development", "test"} else ["local-operator:evaluation"]),
+                    EvaluationRun.trigger_scope.in_(["local-operator:evaluation", "local-operator:orchestration"])
+                    if request.app.state.settings.environment not in {"development", "test"}
+                    else EvaluationRun.trigger_scope.in_(
+                        [
+                            "local-operator:evaluation",
+                            "local-operator:orchestration",
+                            "local-operator:unified-fixture",
+                        ]
+                    ),
                 )
                 .with_for_update()
             )

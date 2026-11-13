@@ -380,3 +380,119 @@ async def test_running_probe_cancel_is_confirmed_without_resubmission(monkeypatc
             assert row.state == "cancelled"
             assert row.result["reason"] == "probe_cancelled"
         assert adapter.cleaned == [str(identifier)]
+
+
+async def test_planned_run_is_visible_in_task_management_detail():
+    settings = get_settings()
+    app = create_app(settings)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client,
+    ):
+        run_id = uuid.uuid4()
+        frozen = {
+            "schema_version": "planned-run.v1",
+            "inputs": {
+                "target_id": str(uuid.uuid4()),
+                "resource_id": str(uuid.uuid4()),
+                "resource_kind": "customer_ssh",
+                "dataset_concurrency": 1,
+                "tasks": [
+                    {
+                        "task_id": "GPQA",
+                        "dataset": "GPQA",
+                        "samples": [{"sample_id": "TEST-1"}, {"sample_id": "TEST-2"}],
+                        "compilation": {"config": {"subcommand": "llm_accuracy", "params": {}}},
+                        "tool": {},
+                    }
+                ],
+            },
+            "estimate": None,
+            "execution_mode": "direct",
+            "execution_origin": settings.evaluation_origin,
+            "resource": {"cpu_cores": 2, "mem_mb": 1024, "disk_gb": 10},
+            "resource_id": str(uuid.uuid4()),
+            "resource_kind": "customer_ssh",
+            "remote_model": "TEST-no-model",
+            "config_version_id": str(uuid.uuid4()),
+            "manifest_id": str(uuid.uuid4()),
+            "parameters": {"scope": "lite", "output": 2048},
+        }
+        async with app.state.sessions() as session, session.begin():
+            session.add(
+                EvaluationRun(
+                    id=run_id,
+                    trigger_scope="local-operator:orchestration",
+                    idempotency_key=str(run_id),
+                    request_hash=digest(frozen),
+                    run_mode="exploration",
+                    created_by="TEST",
+                )
+            )
+            await session.flush()
+            session.add(
+                RunSnapshot(
+                    run_id=run_id,
+                    schema_version="planned-run.v1",
+                    canonical_body=frozen,
+                    sha256=digest(frozen),
+                )
+            )
+
+        listing = await client.get("/api/autoeval/v1/runs?limit=200")
+        assert listing.status_code == 200, listing.text
+        assert str(run_id) in {row["id"] for row in listing.json()["data"]}
+        detail = await client.get(f"/api/autoeval/v1/runs/{run_id}")
+        assert detail.status_code == 200, detail.text
+        data = detail.json()["data"]
+        assert data["snapshot"]["sample_count"] == 2
+        assert data["snapshot"]["resource_kind"] == "customer_ssh"
+        # Planned runs release capacity inline; no separate cleanup job is scheduled.
+        assert data["cleanup"]["state"] == "not_required"
+
+
+async def test_preflight_job_does_not_create_evaluation_run(monkeypatch):
+    from autoeval.planning_worker import execute_job
+
+    app = create_app(get_settings())
+    async with app.router.lifespan_context(app):
+        identifier = uuid.uuid4()
+        payload = {
+            "target_id": str(uuid.uuid4()),
+            "resource_id": str(uuid.uuid4()),
+            "resource_kind": "customer_ssh",
+            "tasks": [
+                {
+                    "task_id": "GPQA",
+                    "dataset": "GPQA",
+                    "compilation": {
+                        "config": {"tool": "ais_bench", "subcommand": "llm_accuracy", "params": {}}
+                    },
+                    "tool": {},
+                }
+            ],
+        }
+        async with app.state.sessions() as session, session.begin():
+            session.add(PlanningJob(id=identifier, kind="preflight", state="pending", payload=payload))
+        async with app.state.sessions() as session:
+            before = len((await session.scalars(select(EvaluationRun))).all())
+
+        class PreflightAdapter:
+            async def preflight(self, checks):
+                return {
+                    "execution_ready": True,
+                    "blocking_reasons": [],
+                    "supported_datasets": ["GPQA"],
+                    "dataset_checks": [],
+                }
+
+        async def transport(*args):
+            return PreflightAdapter()
+
+        monkeypatch.setattr("autoeval.planning_worker.transport", transport)
+        await execute_job(app.state.sessions, app.state.settings, identifier)
+
+        async with app.state.sessions() as session:
+            assert (await session.get(PlanningJob, identifier)).state == "completed"
+            after = len((await session.scalars(select(EvaluationRun))).all())
+        assert after == before, "Preflight must never create an evaluation run"
