@@ -18,6 +18,22 @@ jobs:
     name: Backend (Ruff and pytest)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      AE_DATABASE_URL: postgresql+asyncpg://autoeval:ci-only@127.0.0.1:5432/autoeval
+    services:
+      postgres:
+        image: postgres:16.6
+        env:
+          POSTGRES_USER: autoeval
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: autoeval
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U autoeval -d autoeval"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: backend
@@ -30,6 +46,7 @@ jobs:
           enable-cache: false
       - run: uv sync --locked --python 3.12
       - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync alembic upgrade head
       - run: uv run --no-sync pytest -q
 
   frontend:

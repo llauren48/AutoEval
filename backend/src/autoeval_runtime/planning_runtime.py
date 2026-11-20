@@ -32,11 +32,14 @@ def installed_revision(distribution):
         actual = {"autoeval_planner/" + p.relative_to(root).as_posix() for p in root.rglob("*.py")}
         if actual != set(lock["files"]):
             return None
-        if any(
-            hashlib.sha256(package.locate_file(p).read_bytes()).hexdigest() != sha
-            for p, sha in lock["files"].items()
-        ):
-            return None
+        for path, expected_hash in lock["files"].items():
+            source = package.locate_file(path).read_bytes()
+            if hashlib.sha256(source).hexdigest() == expected_hash:
+                continue
+            # The offline lock was generated from a checkout with CRLF line endings.
+            crlf_source = source.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+            if hashlib.sha256(crlf_source).hexdigest() != expected_hash:
+                return None
         return lock["revision"]
     except (importlib.metadata.PackageNotFoundError, ValueError, OSError, TypeError):
         return None
