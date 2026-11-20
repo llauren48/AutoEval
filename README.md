@@ -101,6 +101,8 @@ Langfuse 采用指定 fork [llauren48/harbor-otel-stack](https://github.com/llau
 
 ## 开发与检查
 
+目标为 `main` 的 PR 会运行两项 GitHub Actions 检查。后端运行 Ruff，在临时 PostgreSQL 上执行 Alembic 迁移，再运行默认 pytest。前端检查模块边界、TypeScript 类型和 Vite 构建。合并前需通过两项检查、同步最新的 `main` 并解决评审对话。
+
 ```powershell
 # backend/
 uv run pytest -q
